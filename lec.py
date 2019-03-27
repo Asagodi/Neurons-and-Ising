@@ -1,8 +1,12 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Created on Wed Feb 13 12:24:17 2019
+
 @author: abel
 """
 
+#matplotlib.use('Agg')
 from mpl_toolkits.mplot3d import Axes3D
 from scipy import *
 from scipy import optimize
@@ -15,11 +19,10 @@ from progress.bar import Bar
 
 
 def make_connection_matrix(N, inh, R, ell):
-    """Constructs a connection matrix for a ring attractor network as in
-    Couey et al. """
+    #construct a connection matrix as in Couey 2013
     theta = zeros([N])
     theta[0:N:2] = 0
-    theta[1:N:2] = 1
+    theta[1:N:2] = 2
     theta = 0.5*pi*theta
     theta = ravel(theta)
     xes = zeros(N)
@@ -33,48 +36,102 @@ def make_connection_matrix(N, inh, R, ell):
       Wgen[xdiff<R,x] = 1
     W = zeros([N,N])
     W[Wgen>0.7] = -inh
-    return W
-    
+    return W, theta
 
-def sim_one_d(N, extinp, inh, R, umax, dtinv, tau, time):
-    """Simulates neural behaviour through a Poisson process 
-    of a network of size N 
-    static bump"""
-    xes = zeros(N)
-    for x in range(N):
-      xes[x] = x
-    
-    Wgen = zeros([N,N], dtype=bool)
-    for x in range(N):
-      xdiff = abs(xes-x)
-      xdiff = minimum(xdiff, N-xdiff)
-      Wgen[xdiff<R,x] = 1
-    W = zeros([N,N])
-    W[Wgen>0.7] = -inh
+
+def sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
+              tau, time, ell, alpha, data, dt):
+    """perform simulation as in Couey 2013
+    N: number of neurons
+    extinp: external input
+    inh: inhibitory connection strength
+    R: radius of inhibitory connections
+    umax:
+    dtinv: inverse of step size
+    tau: 
+    time: to perform the simulation
+    ell: shift of neuron preference for direction
+    alpha: coupling to head direction
+    data: positions: posx, posy
+    dt: timestep size to calculate head direction and velocity 
+    """
+    W, theta = make_connection_matrix(N, inh, R, ell)
     W = sparse.csc_matrix(W)
+    posx = data[0]
+    posy = data[1]
+
+    S = zeros(N)
+    for i in range(N):
+      if(rand()<0.5):
+        S[i] = rand()
+        
+    activities = zeros([N,time])
+    Stemp = zeros(N)
+    for t in xrange(0, time, 1):
+#        v = np.sqrt((posy[t+dt]-posy[t-dt])**2 + (posx[t+dt]-posx[t-dt])**2)
+        theta_t = arctan2( posy[t+dt]-posy[t-dt], posx[t+dt]-posx[t-dt])
+        if t % 100 == 0:
+            v = np.random.uniform(0.25,.75)
+        S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*W + alpha * v * cos(theta_t - theta)))
+        S[S<0.00001] = 0.
+        activities[:,t] = S
+        if 10*t % time == 0:
+            print("Process:" + str(100*t/time) + '%')
+    S = ravel(S)
+    return activities
+
+def make_burak(N, inh, R, ell, lambda_net):
+    theta = zeros([N])
+    theta[0:N:2] = 0
+    theta[1:N:2] = 2
+    theta = 0.5*pi*theta
+    theta = ravel(theta)
     
+    beta = 3./(lambda_net**2)
+    gamma = 1.05*beta
+    W = zeros([N,N])
+    for x in range(N):
+        for y in range(N):
+            xdiff = abs(x-y-ell*cos(theta[y]))
+#            print(x, y, xdiff)
+            W[x, y] = exp(-gamma*xdiff) - exp(-beta*xdiff)
+#            print(W[x, y])
+#
+    return W, theta
+
+def sim_burak(N, extinp, inh, R, umax, dtinv,
+              tau, time, ell, alpha, lambda_net):
+    W, theta = make_burak(N, inh, R, ell, lambda_net)
+    W = sparse.csc_matrix(W)
+
     S = zeros(N)
     ## generate random activity (doesn't matter much)
     for i in range(N):
       if(rand()<0.5):
         S[i] = rand()
-    
-    times = range(time)
+        
     activities = zeros([N,time])
     Stemp = zeros(N)
-    for t in times:
-      S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*W))
-      S[S<0.00001] = 0.
-      activities[:,t] = S
+    for t in xrange(0, time, 1):
+        v = .0
+        if t % 10000 == 0:
+            theta_t = 0.5*pi*np.random.choice([0])
+#            print(theta_t,  alpha * v* cos(theta_t - theta))
+        S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*W + alpha * v * cos(theta_t - theta)))
+        S[S<0.00001] = 0.
+        activities[:,t] = S
+        if 10*t % time == 0:
+            print("Process:" + str(100*t/time) + '%')
     S = ravel(S)
     return activities
 
-def sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
-              tau, time, ell):
-    """Simulates neural behaviour through a Poisson process 
-    of a network of size N 
-    moving bump"""
-    W = make_connection_matrix(N, inh, R, ell)
+
+def sim_dyn_one_d_random(N, extinp, inh, R, umax, dtinv,
+              tau, time, ell, scale):
+    W_dynamic = make_connection_matrix(N, inh, R, ell)
+    W = make_connection_matrix(N, inh, R, 0)
+    
+    W_difference = W_dynamic - W
     W = sparse.csc_matrix(W)
     
     S = zeros(N)
@@ -83,18 +140,30 @@ def sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
       if(rand()<0.5):
         S[i] = rand()
         
-    times = range(time)
     activities = zeros([N,time])
     Stemp = zeros(N)
-    for t in times:
-      S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*W))
-      S[S<0.00001] = 0.
-      activities[:,t] = S
-    S = ravel(S)
+    for t in xrange(0, time, 1):
+        if t % scale == 0:
+#            gamma = np.random.choice([-1., 0., 1.])
+            gamma = np.random.normal(0, .0075)
+#            gamma = 0.1
+        if (t + int(scale/2.)) % scale == 0:    
+            gamma = -gamma
+        S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*(W + gamma * W_difference)))
+        S[S<0.00001] = 0.
+        activities[:,t] = S
+        if 100*t % time == 0:
+            print("Process:" + str(100*t/time) + '%')
+
+#    S = ravel(S)
     return activities
+#fig = plt.figure()
+#ax = fig.add_subplot(111)
+#cax = ax.matshow(activities)
+#fig.colorbar(cax)
+#plt.show()
 
 ######Data + codewords
-
 #discretize
 def bin_data(act, time, bsize, shift):
     """"Bin data into bins of size bsize with a possible shift"""
@@ -105,16 +174,16 @@ def bin_data(act, time, bsize, shift):
     return b_act
 
 #detect spikes
-def detect_spikes(act):
-    """Get spikes from Poisson process with threshold 11.8, adapted from Couey"""
-    r = 11.8*np.random.rand(act.shape[0], act.shape[1])
+def detect_spikes(act, factor):
+    """Get spikes from Poisson process with threshold factor, adapted from Couey"""
+    r = factor*np.random.rand(act.shape[0], act.shape[1])
     spiked_act = np.greater_equal(act, r)
     return spiked_act.astype(int)
 
+#mean spike rate
 def mean_spike_rate(act):
-    # calculates mean spike rate
     return np.sum(act, axis=1)/(2*act.shape[1])+1./2
-
+    
 def spiking_probs(act, delta_t):
     # calculates spking probabilities
     msr = np.average(act, axis=1)
@@ -122,6 +191,7 @@ def spiking_probs(act, delta_t):
 
 #determine state
 def determine_states(spike_act):
+    #inactive state: -1, active state: +1
     states = zeros(spike_act.shape)
     states[spike_act>0] = 1 
     states[spike_act==0] = -1 
@@ -129,13 +199,13 @@ def determine_states(spike_act):
 
 
 def calc_firing_probs(binned_act, time, bsize):
-    # calculates firing probabilities
+    #calculate firing probabilities
     nbin = int(time/bsize)
     probs = np.sum(binned_act, axis=1)/nbin
     return probs
 
 def find_codewords(binned_act):
-    # determines the existing patterns in binned neural data
+    #determines the frequencies of the patterns in binned neural data
     codewords = []
     for i in range(binned_act.shape[1]):
         col = binned_act[:,i]
@@ -145,8 +215,9 @@ def find_codewords(binned_act):
     
     return codewords
 
+
+#find frequencies
 def find_frequencies(codewords):
-    #determines the frequencies of the patterns in binned neural data
     tuple_codewords = map(tuple, codewords)
     freq_dict = Counter(tuple_codewords)
     freqs = np.array(sorted(list(freq_dict.values()),
@@ -175,6 +246,9 @@ def hk(lambda_coeffs, acts):
     return(h)
 
         
+
+
+###combine
 def calc_energy(e_funcs, coeff_list, acts):
     #calculates the energy of some neural pattern(s) for some energy functions
     e = 0
@@ -198,6 +272,7 @@ def average_E(e_funcs, coeff_list, acts):
     return ave_E
 
 ###################Probs + MC
+
 def calc_state_probs(all_states, h, J, beta):
     """Calculates the probabilities of all the possible patterns 
     for exact learning (suitable up to N=20)"""
@@ -225,6 +300,9 @@ def calc_model_expecations(all_states, h, J, beta):
     corrs = zeros([all_states.shape[1], all_states.shape[1]])
     for n, state in enumerate(all_states):
         corrs += np.outer(state, state)*p_vec[n]
+#        for r in range(all_states.shape[1]):
+#            for s in range(all_states.shape[1]):
+#                corrs[r,s] += state[r]*state[s]*p_vec[n]
     
     return model_exps, corrs
 
@@ -245,7 +323,13 @@ def calc_third_order_corr(s_act, mag):
     c = zeros([Nneur,Nneur,Nneur])
     
     for t in range(nbin):
-        c += np.reshape(np.outer(np.reshape(np.outer(s_act[:,t]-mag,s_act[:,t]-mag), (Nneur, Nneur)), s_act[:,t]-mag), (Nneur, Nneur, Nneur))           
+        c += np.reshape(np.outer(np.reshape(np.outer(s_act[:,t]-mag,s_act[:,t]-mag), (Nneur, Nneur)), s_act[:,t]-mag), (Nneur, Nneur, Nneur))
+#    for t in range(nbin):
+#        for i in range(Nneur):
+#            for j in range(Nneur):
+#                for k in range(Nneur):
+#                    c += (s_act[i,t]-mag)*(s_act[j,t]-mag)*(s_act[k,t]-mag)
+#                    
     return c/nbin
 
 #generalize calc_correlations to include arbitrary delay?
@@ -258,7 +342,7 @@ def calc_osd_corr(s_act, mag):
        c += np.outer(s_act[:,i+1]-mag,s_act[:,i]-mag)
     return c/(nbin-1)
 
-def mc_step(N, h, J, current_state, Nflips, e_old, T):
+def mc_step(N, h, J, current_state, Nflips, T):
     """Perform one step of Metropolis Monte Carlo
     as described in Landau-Monte Carlo Simulationsin Statistical Physic
     Chapter 4"""
@@ -274,6 +358,9 @@ def mc_step(N, h, J, current_state, Nflips, e_old, T):
 #            ijk = np.random.randint(0,N)
         
         #step 3
+        #calculate energy of old state
+        e_old = calc_energy([h1,h2], [h, J], current_state)
+        
         new_state = zeros(N)
         new_state[:] = current_state[:]
         new_state[ijk] =   - current_state[ijk]
@@ -291,14 +378,10 @@ def mc_step(N, h, J, current_state, Nflips, e_old, T):
         #step 5
         if r < np.exp(- e_delta/T):
             current_state = new_state
-            e_old = e_new
     return current_state
 
 def mc_step_2(N, h, J, current_state, e_old, T):
     """Same as mc_step but with Nflips=1"""
-    #step 3
-    #calculate energy of old state
-#    e_old = -np.sum(.5*np.multiply(J, np.outer(current_state, current_state)))- np.dot(h, current_state)
     ijk = np.random.randint(0,N)
     new_state = zeros(N)
     new_state[:] = current_state[:]
@@ -307,20 +390,18 @@ def mc_step_2(N, h, J, current_state, e_old, T):
     #calculate energy of new state
     e_new = -np.sum(.5*np.multiply(J, np.outer(new_state, new_state)))- np.dot(h, new_state)
     e_delta = e_new - e_old
-    #step 4
     r = np.random.rand()
-    #step 5
     if r < np.exp(- e_delta/T):
         current_state = new_state
         e_old = e_new
     return current_state, e_old
 
 def metropolis_mc(h, J, Nsamples, Nflips,
-                  sample_after_step, sample_per_steps, T):
+                  sample_after, sample_per_steps, T):
     """Metropolis Monte Carlo simulation with spin flip
     Nsteps: maximal number of steps
     Nflips: is number of flips before choosing another starting point
-    sample_after_step: sample after number of steps
+    sample_after: sample after number of steps
     sample_per_steps sample every sample_per_steps steps"""
     N = h.shape[0]
     initial_state = np.random.rand(N)
@@ -331,7 +412,7 @@ def metropolis_mc(h, J, Nsamples, Nflips,
     Nsteps = int(Nsamples * sample_per_steps)
     current_state = initial_state
     e_old = -np.sum(.5*np.multiply(J, np.outer(current_state, current_state)))- np.dot(h, current_state)
-    for step in range(sample_after_step):
+    for step in xrange(0, sample_after, 1):
         #mc_step_2 faster if Nflips=1
         current_state, e_old = mc_step_2(N, h, J, current_state, e_old, T)
     
@@ -401,8 +482,8 @@ def gdd_dyn(coeffs, initial_state, reference_state, beta):
     while True:
         
         e_old = calc_energy([h1, h2], coeffs, current_state)
-        d_list.append(hamming_distance(initial_state, reference_state))
-        s_list.append(calc_entropy([h1, h2], coeffs, current_state))
+#        d_list.append(hamming_distance(initial_state, reference_state))
+#        s_list.append(calc_entropy([h1, h2], coeffs, current_state))
         
 #       attempt to flip spins i~1,N from their current state into {s i , in order of increasing i.
         indices = range(Nneur)
@@ -428,12 +509,11 @@ def gdd_dyn(coeffs, initial_state, reference_state, beta):
             #stop if could not flip any spin during step
             if stop_ind == Nneur:
                 return current_state
-                
+               
+    #d_list, s_list
     return current_state
 
 
-##choose randomly a pattern set of size 2000
-##identify a LEM set whose size is much smaller than that of the pattern set
 def lem(h, J, number_of_initial_patters):
     """Determine local energy minima (for an Ising model)
     by Greedy Descent Dynamics (Huang and Toyoizumi, 2016)"""
@@ -470,6 +550,7 @@ def B_matrix(data_points, c):
     A = zeros([n_dp,n_dp])
     for r, dp_r in enumerate(data_points):
         for s, dp_s in enumerate(data_points):
+#        for s, dp_s in enumerate(data_points[r:]):
             delta_rs = hamming_distance(np.array(dp_r), np.array(dp_s))
             A[r,s] = -delta_rs**2/2 + c*(1-delta_rs)
 #            A[r,s] = A[s,r]
@@ -479,13 +560,12 @@ def B_matrix(data_points, c):
 def mds(data_points, p, option):
     """reduce data to p dimensions with multidimensional scaling
     option 1 ignores the negative values,
-    option 2 adds an appropriate constant c to the dissimilarities 
-    Cox-Multidimensional scaling analysis 2.2.1"""
+    option 2 adds an appropriate constant c to the dissimilarities """
     
     #As in Multidimensional scaling analysis, Cox
     B = B_matrix(data_points, c=0)
     eig_val, eig_vec = np.linalg.eig(B)
-    np.less_equal(eig_val, 0)
+#    np.less_equal(eig_val, 0) #?
 #    ignore the negative values and proceed
     if option == 1:
         eig_vec = eig_vec[eig_val >= 0]
@@ -501,15 +581,13 @@ def mds(data_points, p, option):
         eig_val, eig_vec = np.linalg.eig(B)
     #    #    X = np.dot(eig_vec, np.sqrt(eig_val))
     
-    X = np.array(eig_vec)
+    X = np.array(eig_vec) # np.dot(np.array(eig_vec), np.sqrt(np.diag(eig_val)))#?
     return X[:, 0:p]
     
 
 ####################PLM
-
-
 def exp_sigma(act_t, rth, h, J, T):
-    #calculates the conditional probability of one variable given all the others
+    #conditional probability of one variable given all the others
     beta=1./T
     sum_without_r = np.sum(np.delete(np.multiply(J[:,rth], act_t), rth, 0))
     return np.exp(-2*beta*act_t[rth]*(h[rth]+sum_without_r))
@@ -521,8 +599,22 @@ def p_sigma(act_t, r, h, J, T):
     "beta=1/T"
     e = exp_sigma(act_t, r, h, J, T)
     return 1/(1+e)
+
+
+#def f_prime_h(sigmas, h_prime, J_prime, T):
+#    "gradient of all the f_r's wrt all the h_r's (respectively)"
+#    beta = 1/T
+#    f_primes = zeros(sigmas.shape[0])
+#    for sigma in sigmas.T:
+#        for r in range(sigmas.shape[0]):
+#            p_s = p_sigma(sigma, r, h_prime, J_prime, T)
+#            e_s = exp_sigma(sigma, r, h_prime, J_prime, T)
+#            f_primes[r] += 2*p_s * e_s * sigma[r]/T
+#    f_primes /= sigmas.shape[1]
+#    return f_primes
     
 def f_prime_seq(sigmas, h_prime, J_prime, reg_lambda, T):
+    #calculates derivative for plm_algorithm sequential gradient descent
     Nneur = sigmas.shape[0]
     f_primes_h = zeros(Nneur)
     f_primes_J = zeros([Nneur,Nneur])
@@ -543,6 +635,7 @@ def f_prime_seq(sigmas, h_prime, J_prime, reg_lambda, T):
 
 
 def f_prime_NR(sigmas, h_prime, J_prime, reg_lambda, T):
+    #calculates derivative for plm_algorithm Newton Raphson
     beta = 1./T
     Nneur = sigmas.shape[0]
     f_primes_h = zeros(Nneur)
@@ -558,12 +651,13 @@ def f_prime_NR(sigmas, h_prime, J_prime, reg_lambda, T):
             hessian[r, r] += 4*beta**2*e_s*(1/(1+e_s) + 1)/(1+e_s)
             for s in range(sigmas.shape[0]):
                 if s != r:
-                    f_primes_J[s,r] -= 2*p_s*e_s*sigma[r]*sigma[s]/T 
+                    f_primes_J[s,r] -= 2*p_s*e_s*sigma[r]*sigma[s]/T + reg_lambda*J_prime[s, r]/norm_J_r
                  
                     hessian[r,Nneur+ s*Nneur+r] += 4*beta**2*e_s*sigma[s]*(1/(1+e_s) + 1)/(1+e_s)
                     hessian[Nneur+ s*Nneur+r, r] += 4*beta**2*e_s*sigma[s]*(1/(1+e_s) + 1)/(1+e_s)
                     for t in range(sigmas.shape[0]):
                         hessian[Nneur+s*Nneur+r, Nneur+t*Nneur+r] += 4*beta**2*e_s*sigma[s]*sigma[t]*(1/(1+e_s) + 1)/(1+e_s) 
+    f_primes_J /= sigmas.shape[1]
     f_primes_h /= sigmas.shape[1]
     hessian /=  sigmas.shape[1]
     eye = np.eye(hessian.shape[0])
@@ -602,8 +696,8 @@ def plm_algorithm(sigmas, max_steps, h, J, h_lambda, J_lambda,
     J = A
     return h, J, np.array(min_av_max)
 
-def plm_seperated(sigmas, max_steps, h, J, h_lambda, J_lambda,
-                  reg_method, reg_lambda, epsilon, T, J_org):
+def plm_separated(sigmas, max_steps, h, J, h_lambda, J_lambda,
+                  reg_method, reg_lambda, epsilon, T):
     """Pseudo_likelihood Maximization with gradient descent
     with l1 (sign and lasso) and l2 regularisation
     sigmas: neural data
@@ -622,46 +716,62 @@ def plm_seperated(sigmas, max_steps, h, J, h_lambda, J_lambda,
     J_org: original matrix to track reconstruction error
     """
     Nneur = sigmas.shape[0]
-    min_av_max = [] 
+    min_av_max = []
     for step in range(max_steps):
         #learning step
         h_primes = zeros(Nneur)
         J_primes = zeros([Nneur,Nneur])
         for r in range(Nneur):
             params = np.append(h[r], J[:,r])
-#            sigmas_r = sigmas[r, :]
+            
             h_primes[r], J_primes[:,r] = f_prime_r(sigmas, r, params,
                                                     reg_method, reg_lambda, T)
         np.fill_diagonal(J_primes, 0)
         h -= h_lambda*h_primes        
         J -= J_lambda*J_primes
-        rec_err = reconstruction_error(J_org, J)
+#        rec_err = reconstruction_error(J_org, J)
         min_av_max.append(np.array([np.min(h), np.average(h), 
                                      np.max(h),
                                      np.min(J), np.average(J), 
-                                     np.max(J), rec_err]))
+                                     np.max(J)]))
+#        if step % 10 == 0:
+        A = (np.triu(J, k=1) + np.tril(J, k=-1).T)/2
+        A += A.T
+        J = A
         if step % 10 == 0:
-            print("Step",step," Rec. Error:", rec_err)
-        
-#    A = (np.triu(J, k=1) + np.tril(J, k=-1).T)/2
-#    A += A.T
-#    J = A
+            print("Step: "+str(step),"Min J: " + str(np.min(J)), "Max J: " + str(np.max(J)))
+#            print("Min d_J: " + str(np.min(J_primes)), "Max d_J: " + str(np.max(J_primes)))
+#        if step != 0 and step % 50 == 0:
+#            h_lambda *= .9
+#            J_lambda *= .9
+        if np.all(np.abs(J_primes) < epsilon) and np.all(np.abs(h_primes) < epsilon):
+            break
     return h, J, np.array(min_av_max)
 
 def f_prime_r(sigmas, rth, params, reg_method, reg_lambda, T):
     #calculates derivative of f_r (as in Aurell, 2012)
     Nneur = sigmas.shape[0]
     f_primes_J = zeros(Nneur)
-#    for sigma in sigmas.T:
+#    hessian = zeros([Nneur+1,  Nneur+1])
+    
     e_s = exp_sigma_r(params, sigmas, rth, T)
     pes = e_s/(1+e_s)
     f_primes_h = -np.sum(2* pes * sigmas[rth,:]/T)
 
+    
     Jnorm = np.linalg.norm(params[1:])
     for s in range(Nneur):
         Jsr = params[1:]
         f_primes_J[s] -= np.sum(2*pes*sigmas[rth,:]*sigmas[s,:]/T) 
-    
+        
+#        upp_hess = np.sum(4*beta**2*e_s*sigma[s,:]*(1/(1+e_s) + 1)/(1+e_s))
+#        hessian[0, s+1] = upp_hess
+#        hessian[s+1, 0] = upp_hess
+#        for t in range(Nneur):
+#            hessian[t+1, s+1] = np.sum(4*beta**2*e_s*sigma[s,:]*sigma[t,:]*(1/(1+e_s) + 1)/(1+e_s))
+            
+#    np.fill_diag(hessian, 0)
+#    hessian[0, 0] += 4*beta**2*e_s*(1/(1+e_s) + 1)/(1+e_s)
     f_primes_J /= sigmas.shape[1]
     f_primes_h /= sigmas.shape[1]
     ###l1-reg
@@ -669,13 +779,24 @@ def f_prime_r(sigmas, rth, params, reg_method, reg_lambda, T):
         f_primes_J += reg_lambda*np.sign(params[1:])
         
     if reg_method == "lasso":
-        f_primes_h[np.abs(f_primes_h)<=reg_lambda] = 0 
-        f_primes_h[f_primes_h>reg_lambda] -= reg_lambda
-        f_primes_h[f_primes_h<reg_lambda] += reg_lambda
+#        if np.abs(f_primes_h)<=reg_lambda:
+#            f_primes_h = 0
+#        elif f_primes_h>reg_lambda:
+#            f_primes_h -= reg_lambda
+#        else: 
+#            f_primes_h += reg_lambda
+        f_primes_J[np.abs(f_primes_J)<=reg_lambda] = 0 
+        f_primes_J[f_primes_J>reg_lambda] -= reg_lambda
+        f_primes_J[f_primes_J<reg_lambda] += reg_lambda
         
     ###l2-reg
     if reg_method == "l2":
         f_primes_J += reg_lambda*params[1:]
+#    if hessian == True:
+#        join_ = np.concatenate((f_primes_h, f_primes_J))
+#        a = np.dot(np.linalg(hessian), join_)
+#        f_primes_h = a[0]
+#        f_primes_J = a[1:]
     return f_primes_h, f_primes_J
 
 def exp_sigma_r(params, sigmas, rth, T):
@@ -685,33 +806,39 @@ def exp_sigma_r(params, sigmas, rth, T):
     return np.exp(-2*sigmas[rth,:]*(params[0]+sum_without_r)/T)
 
 def batch_plm(sigmas, max_steps, batch_size, h, J, h_lambda,
-                  J_lambda, reg_lambda, epsilon, T, method):
+                  J_lambda, reg_method, reg_lambda, epsilon, T, J_org):
     "Stochstic Pseudo_likelihood Maximization"
-    if method == "NR":
-        prime_func = f_prime_NR
-        h_lambda = 1.
-        J_lambda = 1.
-    elif method == "seq":
-        prime_func = f_prime_seq
+    Nneur = sigmas.shape[0]
+    min_av_max = []
     B_tot = sigmas.shape[1]
     for step in range(max_steps):
         np.random.shuffle(np.transpose(sigmas))
         for b in range(int(B_tot/batch_size)):
-            batch = sigmas[:, b*batch_size:(b+1)*batch_size]
-
-            #learning step
-            h_primes, J_primes = prime_func(batch, h, J, reg_lambda, T)
-#            print(h_primes)
+            h_primes = zeros(Nneur)
+            J_primes = zeros([Nneur,Nneur])
+            for r in range(Nneur):
+                params = np.append(h[r], J[:,r])
+                batch = sigmas[:, b*batch_size:(b+1)*batch_size]
+    
+                h_primes[r], J_primes[:,r] = f_prime_r(batch, r, params,
+                                                    reg_method, reg_lambda, T)
             h -= h_lambda*h_primes        
             J -= J_lambda*J_primes
             
-        print("Step", step, "Error:", np.sum(h_primes**2) + np.sum(J_primes**2))
+        rec_err = reconstruction_error(J_org, J)
+        min_av_max.append(np.array([np.min(h), np.average(h), 
+                                     np.max(h),
+                                     np.min(J), np.average(J), 
+                                     np.max(J), rec_err]))
+        
+        print("Step",step," Rec. Error:", rec_err)
 #    A = (np.triu(J_primes, k=1) + np.tril(J_primes, k=-1).T)/2
 #    A += A.T
 #    J = A
     return h, J
 
 def exp_sigma_r_min(params, sigmas, arth, reg_lambda, T):
+    "Calculates exponent for f_prime_r_min"
     arth = int(arth)
     h_r = params[0]
     J_r = params[1:]
@@ -720,6 +847,7 @@ def exp_sigma_r_min(params, sigmas, arth, reg_lambda, T):
     return np.average(np.exp(-2*sigmas[arth,:]*(h_r+sum_without_r)/T)) + reg_lambda*np.linalg.norm(params[1:])
 
 def f_prime_r_min(params, sigmas, arth, reg_lambda, T):
+    "Calculates derivatives for plm_min"
     Nneur = sigmas.shape[0]
     gradient = zeros(Nneur+1)
     arth = int(arth)
@@ -740,8 +868,7 @@ def f_prime_r_min(params, sigmas, arth, reg_lambda, T):
     return gradient
 
 def plm_min(sigmas, h, J, reg_lambda, T):
-    "Pseudo_likelihood Maximization with scipy minimizer"
-    ""
+    "Pseudo_likelihood Maximization with scipy minimizer BFGS"
     Nneur = sigmas.shape[0]
 #    params = zeros([Nneur,Nneur])
 #    params[:,0] = h
@@ -771,8 +898,7 @@ def exp_sigma_r_min(params, sigmas, arth, reg_lambda, T):
     return a
 
 def plm_sqp(sigmas, h, J, reg_lambda, T):
-    "Pseudo_likelihood Maximization with scipy minimizer"
-    ""
+    "Pseudo_likelihood Maximization with scipy minimizer SLSQP"
     Nneur = sigmas.shape[0]
 #    params = zeros([Nneur,Nneur])
 #    params[:,0] = h
@@ -798,10 +924,6 @@ def cons_i(params, Nneur, i):
     w = params[1:Nneur]
     u = params[Nneur:]
     return u[i] - np.abs(w[i])
-
-
-
-
 
 ####exact learning
 def exact_learning(N, s_act, max_steps, l_rate, h, J, beta):
@@ -844,7 +966,6 @@ def exact_learning_mem(N, s_act, max_steps, l_rate, h, J, beta):
                                      np.max(h),
                                      np.min(J), np.average(J), 
                                      np.max(J)]))
-#    print(np.average(h_coeffs), np.average(J_coeffs))
     return h, J, np.array(min_av_max)
 
 
@@ -876,7 +997,7 @@ def calc_exp_corr(N, h, J, beta):
     return model_exps, corrs
 
 def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
-                  sample_after_step, sample_per_steps, T):
+                  sample_after, sample_per_steps, T):
     """Boltzmann Learning with Monte Carlo sampling to determine 
     model expectations and correlations"""
     #stopping condition?
@@ -889,7 +1010,7 @@ def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
     min_av_max = []
     for step in range(max_steps):
         model_exps, model_corrs = calc_exps_mc(h, J, Nsamples, Nflips,
-                  sample_after_step, sample_per_steps, T)
+                  sample_after, sample_per_steps, T)
         h += l_rate*(mag - model_exps)
         J += l_rate*(corrs - model_corrs)
         min_av_max.append([np.min(h), np.average(h), 
@@ -903,9 +1024,10 @@ def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
     return h, J, np.array(min_av_max)
 
 def calc_exps_mc(h, J, Nsamples, Nflips,
-                  sample_after_step, sample_per_steps, T):
+                  sample_after, sample_per_steps, T):
+    "Calculates average magnetization and correlations for Boltzmann Learning"
     mc_samples = metropolis_mc(h, J, Nsamples, Nflips,
-                  sample_after_step, sample_per_steps, T)
+                  sample_after, sample_per_steps, T)
     model_exps = np.average(mc_samples, axis=1)
 #    print(model_exps.shape)
     
@@ -915,6 +1037,20 @@ def calc_exps_mc(h, J, Nsamples, Nflips,
     model_corrs =  c/Nsamples
     return model_exps, model_corrs
 
+
+#all_states = np.array([list(seq) for seq in itertools.product([-1,1],
+#     repeat=Nexact)])
+#Nexact = 10
+#h, J = nMF(b_act, "tap")
+#e_funcs = [h1,h2]
+#idx = np.random.choice(N, Nexact, replace=False)
+#h_small = h[idx]
+#J_small = J[idx, :]
+#J_small = J_small[:, idx]
+#spiked_act_small = spiked_act[idx]
+#h_coeffs, J_coeffs = exact_learning(all_states, spiked_act_small,
+#                                    1000, 0.01, [h_small, J_small], 1)
+
 ######Native Mean Field
 def nMF(s_act = 0, approx_type = ""):
     """Mean Field approximation of inverse Ising 
@@ -923,7 +1059,7 @@ def nMF(s_act = 0, approx_type = ""):
     C = calc_correlations(s_act, mag)
     #include 1/beta?
     J = -np.linalg.inv(C)
-#    np.fill_diagonal(J, 0)
+    np.fill_diagonal(J, 0)
     h = np.arctanh(mag) - np.dot(J, mag) 
     
 #    else:
@@ -942,14 +1078,13 @@ def nMF(s_act = 0, approx_type = ""):
         #.real?
         A = np.multiply(lowest_roots.real, np.diag(1-np.square(mag)))
         J = np.dot(np.linalg.inv(A), np.dot(D, np.linalg.inv(C)))
-#        np.fill_diagonal(J, 0)
+        np.fill_diagonal(J, 0)
         h = np.arctanh(mag) - np.dot(J, mag) + np.multiply(mag, np.dot(np.square(J),  1-np.square(mag)))
     
     return h,J
 
 def reconstruction_error(original_J, inferred_J):
     """Calculates reconstruction error as in Aurell 2012 """
-    #\Delta = \frac{1}{1/\sqrt{N}}<(J_{ij}^* - J_{ij})^2>^{1/2}.
     return np.sqrt(original_J.shape[0])*np.sqrt(np.average(np.square(original_J - inferred_J)))
 
 def sherrington_kirkpatrick(N, p):
