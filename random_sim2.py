@@ -8,34 +8,52 @@ Created on Thu Mar 21 19:13:08 2019
 import numpy as np
 from scipy import *
 import scipy.io
+import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from simulate_oned import *
 import time as tm
 
-path = "/home/abel/Documents/Projects/BioMath/LEC/Saves/Biased N=50/"
-
-#N, extinp, inh, R = 50, 3, 0.235619449019, 20.0666666667
-#umax, dtinv, tau, time, ell, alpha, lambda_net = 1., 10, 10, 10**4, 2., 0.1, 13
-#bsize, shift, scale, dt = 10, 0, 10000, 1
+path = "/home/abel/Documents/Projects/BioMath/LEC/Saves/Head Data N=100/"
+#
+N, extinp, inh, R = 100, 3, 0.235619449019, 20.0666666667
+umax, dtinv, tau, time, ell, alpha, lambda_net = 1., 10, 10, 10**4, 2., 0.25, 13
+bsize, shift, scale, dt = 10, 0, 10000, 1
 ##
 #mat = scipy.io.loadmat('animal_movement.mat')
 #data = [ravel(array(mat['posx'])), ravel(array(mat['posy']))]
 ##data =ravel(array(mat['posx']))
 ##data_1 = -min(data) + data
 ##head_data = 2*data_1/max(data_1)
-#time  = array(mat['posx']).shape[1]-1
-#
+#time  = 25*array(mat['posx']).shape[1]
 ##
+###
+#mat = scipy.io.loadmat('Mouse12-120806_stuff_simple_awakedata.mat')
+#angles = mat['headangle'][~np.isnan(mat['headangle'])] - pi
+#time  = 25*len(angles)
 #t0 = tm.time()
-#activities = sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
-#              tau, time, ell, alpha, data, dt)
+#activities, vs, thetas = sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
+#              tau, time, ell, alpha, angles, dt)
 #print("Time:", tm.time()-t0)
-#####bin
-#b_act = bin_data(activities, time, bsize, shift)
+##
+#
+#####mat = scipy.io.loadmat('data2.mat')
+#####activities =  mat['S']
+#####time = activities[:,100:-100].shape[1]
+
+#mat  = scipy.io.loadmat('data2.mat')
+#activities = mat['S']
+#######bin
+#time = activities.shape[1]
+#b_act = bin_data(activities, time, 10, shift)
 ###detect spikes
-#spiked_act = detect_spikes(b_act, 120)
+#spiked_act = detect_spikes(b_act, 175)
 ###determine state
 #s_act = determine_states(spiked_act)
+#
+
+
+#s_act = np.loadtxt(path+"sim_50_head_ang_5.csv", delimiter=',')
 ###
 #mag_sim = np.average(s_act, axis=1)
 #fig = plt.figure()
@@ -43,84 +61,113 @@ path = "/home/abel/Documents/Projects/BioMath/LEC/Saves/Biased N=50/"
 #cax = ax.plot((mag_sim + 1)/2.)
 #plt.show()
 ##
-#print(np.average((mag_sim + 1)/2.))
-##
 #fig = plt.figure()
 #ax = fig.add_subplot(111)
-#cax = ax.matshow(s_act[:,:1000])
+#cax = ax.plot(vs[:])
 #plt.show()
 #
+#fig = plt.figure()
+#ax = fig.add_subplot(111)
+#cax = ax.plot(thetas[:])
+#plt.show()
+#
+#fig = plt.figure()
+#ax = fig.add_subplot(111)
+#cax = ax.imshow(s_act[:,:1000])
+#plt.show()
+##
+#
+#print(np.average((mag_sim + 1)/2.))
+#
+
+#writer1 = FFMpegWriter(fps=15, metadata=dict(title=''))
+#fig = plt.figure(2)
+#num_sam = 250
+#with writer.saving(fig, "head_act_2.mp4", num_sam):
+#    for i in range(num_sam):
+#        plt.clf()
+#        ax = fig.add_subplot(1,2,1)
+#        cax = ax.matshow(s_act[:,10*i:10*(i+1)])
+#        #plt.show()
+#        
+#        ax = fig.add_subplot(1,2,2)
+#        ang=angles[2*i]
+#        x0 = cos(ang)*0.5
+#        y0 = sin(ang)*0.5
+#        ax.plot([0,x0], [0,y0])
+#        ax.axis([-0.5, 0.5, -0.5, 0.5])
+#        
+#        writer.grab_frame()
+    
+#
+#length = 500
 #def animate(i):
-#    im.set_data(np.reshape(s_act[:,i*100:(i+1)*100], (N,100)))
+#    im.set_data(np.reshape(s_act[:,i*length:(i+1)*length], (N,length)))
 #    return im,
 #fig = plt.figure()
-#im =  plt.imshow(np.reshape(s_act[:,0:100], (N,100)), animated=True)
+#im =  plt.imshow(np.reshape(s_act[:,0:length], (N,length)), animated=True)
 #plt.colorbar()
 #def init():  
-#    im.set_data(np.reshape(s_act[:,0:100], (N,100)))
+#    im.set_data(np.reshape(s_act[:,0:length], (N,length)))
 #    return im,
-#
+###
 #anim = animation.FuncAnimation(fig, animate, init_func=init,
-#                                   frames=100, interval=100, blit=True)
+#                                   frames=20, interval=100, blit=True)
+##
+#anim.save("s_act_8.mp4", fps=5, extra_args=['-vcodec', 'libx264'])
 
-#
+
 #np.savetxt(path+"sim_50_b_106_9.csv", b_act, delimiter=",")
-#np.savetxt(path+"sim_50_s_106_9.csv", s_act, delimiter=",")
-
-#s_act = np.loadtxt(path+"sim_50_head.csv", delimiter=',')
-#mag_sim = np.average(s_act, axis=1)
-#fig = plt.figure()
-#ax = fig.add_subplot(111)
-#cax = ax.plot(mag_sim)
-#plt.show()
-
-#h, J = nMF(s_act)  
+#np.savetxt(path+"sim_50_head_ang.csv", s_act, delimiter=",")
+#h, J = nMF(s_act)   
 reg_method = "l2"
 #h = np.loadtxt(path+"random_50_h_" + reg_method + "_head.csv", delimiter=',')
 #J = np.loadtxt(path+"random_50_J_" + reg_method + "_head.csv", delimiter=',')
-
-max_steps = 100  
+#
+max_steps = 50
 h_lambda = .25
 J_lambda = h_lambda
-reg_lambda = .00001
-epsilon = 0.0001
+reg_lambda = 0.001
+epsilon = 0.001
 t0 = tm.time()
 h, J, min_av_max_plm = plm_separated(s_act, max_steps,
                         h, J, h_lambda, J_lambda,
                         reg_method, reg_lambda, epsilon, 1.)
-#np.savetxt(path+"random_50_h_" + reg_method + "_head.csv", h, delimiter=",")
-#np.savetxt(path+"random_50_J_" + reg_method + "_head.csv", J, delimiter=",")
+###np.savetxt(path+"random_50_h_" + reg_method + "_head.csv", h, delimiter=",")
+##np.savetxt(path+"random_50_J_" + reg_method + "_head.csv", J, delimiter=",")
 print("Time:", tm.time()-t0)
 
+
+
 #############Test inferred model 
-#Nsamples = 10**3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
-#Nflips = 1
-#sample_after = 1000 #10**7   
-#sample_per_steps = 100 # 10 * N
-#s_act_inferred = metropolis_mc(h, J, Nsamples, Nflips,
-#                  sample_after, sample_per_steps, 1.)
+Nsamples = 10**2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+Nflips = 1
+sample_after = 1000 #10**7   
+sample_per_steps = 100 # 10 * N
+s_act_inferred = metropolis_mc(h, J, Nsamples, Nflips,
+                  sample_after, sample_per_steps, 1.)
+
+mag_sim = np.average(s_act, axis=1)
+#corrs_sim = calc_correlations(s_act, mag_sim)
+#corrs3_sim = calc_third_order_corr(s_act, mag_sim)
+#corrs_sim = np.loadtxt(path+"random_50_corrs_sim_9.csv", delimiter=',')
+#corrs3_sim = np.loadtxt(path+"random_50_corrs3_sim_9.csv", delimiter=',')
+
 #
-#mag_sim = np.average(s_act, axis=1)
-##corrs_sim = calc_correlations(s_act, mag_sim)
-##corrs3_sim = calc_third_order_corr(s_act, mag_sim)
-##corrs_sim = np.loadtxt(path+"random_50_corrs_sim_9.csv", delimiter=',')
-##corrs3_sim = np.loadtxt(path+"random_50_corrs3_sim_9.csv", delimiter=',')
-#
-##
-#mag_inf = np.average(s_act_inferred, axis=1)
-#corrs_inf = calc_correlations(s_act_inferred, mag_inf)
-#corrs3_inf = calc_third_order_corr(s_act_inferred, mag_inf)
-#
-#fig = plt.figure(figsize=(7.5, 7.5))
-#ax = fig.add_subplot(111)
-#cax = ax.plot([-1, 1], [-1, 1], c="r")
-#cax = ax.plot(corrs_sim.flatten(), corrs_inf.flatten(), 'x', c='tab:orange', label="Correlations")
-#cax = ax.plot(corrs3_sim.flatten(), corrs3_inf.flatten(), 'x', c='g', label="Third order correlations")
-#cax = ax.plot(mag_sim, mag_inf, 'o', c='b', label="Average magnetization")
-#ax.set_xlabel("Data")
-#ax.set_ylabel("Inferred")
-#ax.legend()
-#plt.show()
+mag_inf = np.average(s_act_inferred, axis=1)
+corrs_inf = calc_correlations(s_act_inferred, mag_inf)
+corrs3_inf = calc_third_order_corr(s_act_inferred, mag_inf)
+
+fig = plt.figure(figsize=(7.5, 7.5))
+ax = fig.add_subplot(111)
+cax = ax.plot([-1, 1], [-1, 1], c="r")
+cax = ax.plot(corrs_sim.flatten(), corrs_inf.flatten(), 'x', c='tab:orange', label="Correlations")
+cax = ax.plot(corrs3_sim.flatten(), corrs3_inf.flatten(), 'x', c='g', label="Third order correlations")
+cax = ax.plot(mag_sim, mag_inf, 'o', c='b', label="Average magnetization")
+ax.set_xlabel("Data")
+ax.set_ylabel("Inferred")
+ax.legend()
+plt.show()
 
 
 #######Tuning Curve
@@ -156,18 +203,18 @@ T = 1.
 patterns_gdd = lem(h, J, number_of_initial_patterns)
 tuple_codewords = map(tuple, patterns_gdd)
 freq_dict_gdd = Counter(tuple_codewords)
-code_probs_gdd = np.array(list(sorted(freq_dict_gdd.values(),reverse=True)), dtype="float64")/np.sum(freq_dict_gdd.values())
+code_probs_gdd = np.array(list(sorted(freq_dict_gdd.values(),reverse=True)), dtype="float64")/np.sum(list(freq_dict_gdd.values()))
 
-fig = plt.figure()
-ax = fig.add_subplot(111)
-cax = ax.plot(code_probs_gdd, 'o', label="GGD")
-ax.set_yscale('log')
-ax.set_xlabel("Codeword")
-ax.set_ylabel("Probability")
-plt.show()
+#fig = plt.figure()
+#ax = fig.add_subplot(111)
+#cax = ax.plot(code_probs_gdd, 'o', label="GGD")
+#ax.set_yscale('log')
+#ax.set_xlabel("Codeword")
+#ax.set_ylabel("Probability")
+#plt.show()
 
-indexed = sorted(range(len(freq_dict_gdd.values())), key=lambda k: freq_dict_gdd.values()[k])
-indexed_patterns = [freq_dict_gdd.keys()[i] for i in indexed]
+indexed = sorted(range(len(freq_dict_gdd.values())), key=lambda k: list(freq_dict_gdd.values())[k])
+indexed_patterns = [list(freq_dict_gdd.keys())[i] for i in indexed]
 
 stored_energies = []
 oel = []
@@ -176,18 +223,17 @@ for pattern in freq_dict_gdd.keys():
     stored_energies.append(energy)
     oel.append([freq_dict_gdd.get(pattern)/float(number_of_initial_patterns), round(energy, 2)])
     
-fig = plt.figure()
-ax = fig.add_subplot(111)
-cax = ax.plot(sorted(stored_energies, reverse=True), 'x')
-plt.show()
+#fig = plt.figure()
+#ax = fig.add_subplot(111)
+#cax = ax.plot(sorted(stored_energies, reverse=True), 'x')
+#plt.show()
 
 
 ###order and plot found local energy minima
-N=50
 ordered_indices = []
 for j in range(N):
     for i in range(len(freq_dict_gdd.keys())): 
-        if freq_dict_gdd.keys()[i][j-1] == -1. and freq_dict_gdd.keys()[i][j] == 1. and i not in ordered_indices:
+        if list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
             ordered_indices.append(i)
             
 
@@ -195,7 +241,7 @@ for i in range(len(freq_dict_gdd.keys())):
     if i not in ordered_indices:
         ordered_indices.append(i)
             
-ordered_patterns = [freq_dict_gdd.keys()[i] for i in ordered_indices]
+ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
 ordered_energies = [oel[i] for i in ordered_indices]
 fig = plt.figure()
 ax = fig.add_subplot(111)
@@ -207,17 +253,18 @@ plt.show()
 
 
 ##look for expected pattern energies and check for local energy minimum
-exp_patterns = -ones([50,25])
-lenght = 8
-shift = int((50 - 2*lenght)/2)
-for i in range(25):
+num_patts = N
+exp_patterns = -ones([N,num_patts]) # second value half if two bumps
+lenght = 36
+shift = int((N - 2*lenght)/2)
+for i in range(num_patts): #half if two bumps
     for n in range(lenght):
-        exp_patterns[n+i, i] = 1
-        exp_patterns[(n + lenght+shift +i)% 50, i] = 1
+        exp_patterns[(n +i)% N, i] = 1
+#        exp_patterns[(n + lenght+shift +i)% N, i] = 1
         
 expected_pattern_energies = []
 lems_expected_patterns = []
-lems = zeros([50,25])
+lems = zeros([N,num_patts])
 for i,pattern in enumerate(exp_patterns.T):
     energy = calc_energy([h1,h2], [h,J], pattern)
     expected_pattern_energies.append(round(energy,2))
@@ -239,6 +286,8 @@ cax = ax.plot(expected_pattern_energies, label="Energies of the expected pattern
 cax = ax.plot(lems_expected_patterns, label="Energies of the LEMs of these patterns")
 ax.legend()
 plt.show()
+
+print( "Energy difference:", min(expected_pattern_energies) - max(expected_pattern_energies))
 
 #energy_indices = sorted(range(len(stored_energies)), key=lambda k: stored_energies[k])
 #indexed_energies = [stored_energies[i] for i in energy_indices]
@@ -267,9 +316,9 @@ p=2
 from sklearn.manifold import MDS
 
 number_of_patterns = len(freq_dict_gdd.values())
-dissimilarities = zeros([50, 50])
+dissimilarities = zeros([2*num_patts, 2*num_patts])
 combined_patterns = np.concatenate((exp_patterns.T, np.array(lems).T))
-print combined_patterns.shape
+print(combined_patterns.shape)
 pattern_array = np.array(freq_dict_gdd.keys())
 for r, dp_r in enumerate(combined_patterns):
     for s, dp_s in enumerate(combined_patterns):
@@ -280,8 +329,8 @@ embedding = MDS(n_components=p, dissimilarity='precomputed')
 X_transformed = embedding.fit_transform(dissimilarities)
 fig = plt.figure(figsize=(7.5, 7.5))
 ax = fig.add_subplot(111)
-cax = ax.scatter(X_transformed[:25,0], X_transformed[:25,1], marker="x", c="b", label="Expected patterns")
-cax = ax.scatter(X_transformed[25:,0], X_transformed[25:,1], marker="o", c="r", label="LEMs")
+cax = ax.scatter(X_transformed[:num_patts,0], X_transformed[:num_patts,1], marker="x", c="b", label="Expected patterns")
+cax = ax.scatter(X_transformed[num_patts:,0], X_transformed[num_patts:,1], marker="o", c="r", label="LEMs")
 ax.set_xlabel("X")
 ax.set_ylabel("Y")
 ax.legend()
