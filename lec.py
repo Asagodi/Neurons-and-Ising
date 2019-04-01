@@ -12,10 +12,11 @@ from scipy import *
 from scipy import optimize
 import scipy.sparse as sparse
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from collections import Counter
 import itertools
 import numpy as np
-from progress.bar import Bar
+#from progress.bar import Bar
 
 
 def make_connection_matrix(N, inh, R, ell):
@@ -24,6 +25,7 @@ def make_connection_matrix(N, inh, R, ell):
     theta[0:N:2] = 0
     theta[1:N:2] = 2
     theta = 0.5*pi*theta
+#    theta = arange(N)*2.*pi/float(N) - pi
     theta = ravel(theta)
     xes = zeros(N)
     for x in range(N):
@@ -57,8 +59,8 @@ def sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
     """
     W, theta = make_connection_matrix(N, inh, R, ell)
     W = sparse.csc_matrix(W)
-    posx = data[0]
-    posy = data[1]
+#    posx = data[0]
+#    posy = data[1]
 
     S = zeros(N)
     for i in range(N):
@@ -67,18 +69,54 @@ def sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
         
     activities = zeros([N,time])
     Stemp = zeros(N)
-    for t in xrange(0, time, 1):
-#        v = np.sqrt((posy[t+dt]-posy[t-dt])**2 + (posx[t+dt]-posx[t-dt])**2)
-        theta_t = arctan2( posy[t+dt]-posy[t-dt], posx[t+dt]-posx[t-dt])
-        if t % 100 == 0:
-            v = np.random.uniform(0.25,.75)
-        S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*W + alpha * v * cos(theta_t - theta)))
-        S[S<0.00001] = 0.
-        activities[:,t] = S
-        if 10*t % time == 0:
-            print("Process:" + str(100*t/time) + '%')
-    S = ravel(S)
-    return activities
+    vs = []
+    thetas = []
+    angle_i = 0
+    
+    FFMpegWriter = animation.writers['ffmpeg']
+    writer = FFMpegWriter(fps=15, metadata=dict(title=''))
+    fig = plt.figure(2)
+    with writer.saving(fig, 'mav2.mp4', 300):
+        for t in range(0, time, 1):
+        ##use if animal position is given:
+#        if t % 100 == 0 and t + 500 < time:
+#            tn = t / 5
+#            v = 10*np.sqrt((posy[tn+50]-posy[tn-50])**2 + (posx[tn+50]-posx[tn-50])**2)
+#            theta_t = arctan2( posy[tn+dt]-posy[tn-dt], posx[tn+dt]-posx[tn-dt]) + 0.5*pi*theta
+            
+            ##use if animal head direction is given:
+            if t % 25 == 0 and angle_i+1 < len(data): 
+                theta_t = data[angle_i] #- data[angle_i-1] + .5*pi
+                v = np.abs(data[angle_i-1]  - data[angle_i+1])
+                if v > pi:
+                    v = 2*pi - v
+                v *= 40
+                angle_i += 1 
+                vs.append(v)
+                thetas.append(cos(theta_t - theta))
+    
+            S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*W + alpha * v * cos(theta_t - theta)))
+            S[S<0.00001] = 0.
+            activities[:,t] = S
+#            if (10*t) % (time) == 0:
+#                print("Process:" + str(100*t/time) + '%')
+#            
+            if(t<5000 and mod(t,10)==0):
+                plt.clf()
+                ax = plt.subplot(2,2,1)
+                ax.plot(S, '-')
+#                plt.plot([ni, ni], [min(S),max(S)], '-', color='red')
+#                plt.ylabel('neural activity')
+#                plt.xlabel('neurons')
+                ax = fig.add_subplot(2,2,2)
+                ang=theta_t
+                x0 = cos(ang)*0.5
+                y0 = sin(ang)*0.5
+                ax.plot([0,x0], [0,y0])
+                ax.axis([-0.5, 0.5, -0.5, 0.5])
+                writer.grab_frame()
+                plt.xlabel('heading direction')
+    return activities, vs, thetas
 
 def make_burak(N, inh, R, ell, lambda_net):
     theta = zeros([N])
@@ -112,7 +150,7 @@ def sim_burak(N, extinp, inh, R, umax, dtinv,
         
     activities = zeros([N,time])
     Stemp = zeros(N)
-    for t in xrange(0, time, 1):
+    for t in range(0, time, 1):
         v = .0
         if t % 10000 == 0:
             theta_t = 0.5*pi*np.random.choice([0])
@@ -142,7 +180,8 @@ def sim_dyn_one_d_random(N, extinp, inh, R, umax, dtinv,
         
     activities = zeros([N,time])
     Stemp = zeros(N)
-    for t in xrange(0, time, 1):
+    
+    for t in range(0, time, 1):
         if t % scale == 0:
 #            gamma = np.random.choice([-1., 0., 1.])
             gamma = np.random.normal(0, .0075)
@@ -412,13 +451,13 @@ def metropolis_mc(h, J, Nsamples, Nflips,
     Nsteps = int(Nsamples * sample_per_steps)
     current_state = initial_state
     e_old = -np.sum(.5*np.multiply(J, np.outer(current_state, current_state)))- np.dot(h, current_state)
-    for step in xrange(0, sample_after, 1):
+    for step in range(0, sample_after, 1):
         #mc_step_2 faster if Nflips=1
         current_state, e_old = mc_step_2(N, h, J, current_state, e_old, T)
     
 #    bar = Bar('MC simulation', max=Nsamples)
 #    bar.next()
-    for step in xrange(0, Nsteps, 1):
+    for step in range(0, Nsteps, 1):
         current_state, e_old = mc_step_2(N, h, J, current_state, e_old, T)
         
         if step % sample_per_steps == 0:
@@ -432,7 +471,7 @@ def metropolis_mc(h, J, Nsamples, Nflips,
 
 ##############LEM + MDS
 #greedy descent dynamics
-def gdd(coeffs, initial_state):
+def gdd(coeffs=[0,0], initial_state=1, inverse=False):
     """for each neuron, we flip its activity if the flip will decrease the
     energy. If we could not decrease the energy by flipping any
     neuron’s activity, then a local energy minimum is identified"""
@@ -454,7 +493,11 @@ def gdd(coeffs, initial_state):
             new_state[ind] = -current_state[ind]
             e_new = calc_energy([h1, h2], coeffs, new_state)
             e_delta = e_new - e_old
-
+            
+            #uphill walk if True
+            if inverse==True:
+                e_delta -= e_delta
+                
             if e_delta < 0:
                 e_old = e_new
                 current_state = new_state
@@ -470,59 +513,78 @@ def gdd(coeffs, initial_state):
     return current_state
 
 
-def gdd_dyn(coeffs, initial_state, reference_state, beta):
+def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
     """calculate distance and entropy from reference (final) state
     when doing greedy descent dynamics"""
     beta = 1./T
+    J = coeffs[1]
+    h = coeffs[0]
     d_list = []
     s_list = []
+    acts = []
     Nneur = initial_state.shape[0]
     current_state = zeros(Nneur)
     current_state[:] = initial_state[:]
-    while True:
-        
-        e_old = calc_energy([h1, h2], coeffs, current_state)
+#    e_old = calc_energy([h1, h2], coeffs, current_state)
+    for step in range(max_steps):
 #        d_list.append(hamming_distance(initial_state, reference_state))
 #        s_list.append(calc_entropy([h1, h2], coeffs, current_state))
-        
-#       attempt to flip spins i~1,N from their current state into {s i , in order of increasing i.
-        indices = range(Nneur)
-        
-        #random order of spin flip
-#        indices = np.random.permutation(Nneur)
-        stop_ind = 0
-        for ind in indices:
-
+        ind = np.random.choice(range(N))
+        trans_prob = np.exp(-2*current_state[ind]*(h[ind] + np.sum(.5*np.dot(J[:,ind], current_state))))
+        r = np.random.rand(1.)
+        if r < trans_prob:
             new_state = current_state
             new_state[ind] = -current_state[ind]
-            e_new = calc_energy([h1, h2], coeffs, new_state)
-            e_delta = e_new - e_old
-
-            if e_delta < 0:
-                e_old = e_new
-                current_state = new_state
-                
-            else:
-                stop_ind += 1
-                current_state[ind] = -current_state[ind]
-                
-            #stop if could not flip any spin during step
-            if stop_ind == Nneur:
-                return current_state
+        acts.append(new_state)    
+        
+            
+#        else:
+#            stop_ind += 1
+#            
+#        #stop if could not flip any spin during step
+#        if stop_ind == Nneur:
+#            return current_state
                
     #d_list, s_list
     return current_state
 
 
-def lem(h, J, number_of_initial_patters):
+def lem(h, J, number_of_initial_patterns):
     """Determine local energy minima (for an Ising model)
     by Greedy Descent Dynamics (Huang and Toyoizumi, 2016)"""
     N = h.shape[0]
-    patters = []
-    for i_p in range(number_of_initial_patters):
+    patterns = []
+    for i_p in range(number_of_initial_patterns):
         initial_state = np.random.choice([-1,1], N)
-        patters.append(gdd([h, J], initial_state))
-    return patters
+        patterns.append(gdd([h, J], initial_state))
+    return patterns
+
+def lem_init_final(h, J, number_of_initial_patterns):
+    """same as lem but stores initial state-final state dictionary"""
+    N = h.shape[0]
+    init_final_dict = {}
+    for i_p in range(number_of_initial_patterns):
+        initial_state = np.random.choice([-1,1], N)
+        final_state = gdd([h, J], initial_state)
+        try:
+            init_final_dict[final_state.tobytes()].append(initial_state)
+        except KeyError:
+            init_final_dict[final_state.tobytes()] = [initial_state]
+    return init_final_dict
+
+def lem_from_data(h, J, s_act):
+    """Determines LEM with GDD for all states from data"""
+    N = h.shape[0]
+#    init_final_dict = {}
+    patterns = []
+    for i_p, pattern in range(s_act):
+        final_state = gdd([h, J], pattern)
+        patterns.append(final_state)
+#        try:
+#            init_final_dict[final_state.tobytes()].append(pattern)
+#        except KeyError:
+#            init_final_dict[final_state.tobytes()] = [pattern]
+    return patterns
 
 def hamming_distance(sigma_1, sigma_2):
     #Calculates the Hamming distance between two neural patterns
@@ -975,7 +1037,7 @@ def calc_exp_corr(N, h, J, beta):
     p_tot = 0
     model_exps = zeros(N)
     corrs = zeros([N, N])
-    for n in xrange(0, 2**N, 1):
+    for n in range(0, 2**N, 1):
         string_state = format(n, 'b').zfill(N)
         array_state = np.array([int(s) if s=="1" else -1 for s in string_state])
         e = .5*np.sum(np.multiply(J, np.outer(array_state, array_state)))+np.dot(h, array_state)
