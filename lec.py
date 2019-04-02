@@ -23,7 +23,7 @@ def make_connection_matrix(N, inh, R, ell):
     #construct a connection matrix as in Couey 2013
     theta = zeros([N])
     theta[0:N:2] = 0
-    theta[1:N:2] = 2
+    theta[1:N:2] = 1
     theta = 0.5*pi*theta
 #    theta = arange(N)*2.*pi/float(N) - pi
     theta = ravel(theta)
@@ -166,9 +166,8 @@ def sim_burak(N, extinp, inh, R, umax, dtinv,
 
 def sim_dyn_one_d_random(N, extinp, inh, R, umax, dtinv,
               tau, time, ell, scale):
-    W_dynamic = make_connection_matrix(N, inh, R, ell)
-    W = make_connection_matrix(N, inh, R, 0)
-    
+    W_dynamic, theta = make_connection_matrix(N, inh, R, ell)
+    W, theta = make_connection_matrix(N, inh, R, 0)
     W_difference = W_dynamic - W
     W = sparse.csc_matrix(W)
     
@@ -184,7 +183,7 @@ def sim_dyn_one_d_random(N, extinp, inh, R, umax, dtinv,
     for t in range(0, time, 1):
         if t % scale == 0:
 #            gamma = np.random.choice([-1., 0., 1.])
-            gamma = np.random.normal(0, .0075)
+            gamma = np.random.normal(0, .1)
 #            gamma = 0.1
         if (t + int(scale/2.)) % scale == 0:    
             gamma = -gamma
@@ -262,7 +261,7 @@ def find_frequencies(codewords):
     freqs = np.array(sorted(list(freq_dict.values()),
                             reverse=True))
     
-    return freqs
+    return freqs #transpose?
 
 
 ##############ENERGY
@@ -444,7 +443,7 @@ def metropolis_mc(h, J, Nsamples, Nflips,
     sample_per_steps sample every sample_per_steps steps"""
     N = h.shape[0]
     initial_state = np.random.rand(N)
-    thr = 0.6
+    thr = 0.9
     initial_state[initial_state>thr] = 1 
     initial_state[initial_state<=thr] = -1
     mc_samples = zeros([N, Nsamples])
@@ -496,7 +495,7 @@ def gdd(coeffs=[0,0], initial_state=1, inverse=False):
             
             #uphill walk if True
             if inverse==True:
-                e_delta -= e_delta
+                e_delta = -e_delta
                 
             if e_delta < 0:
                 e_old = e_new
@@ -516,37 +515,28 @@ def gdd(coeffs=[0,0], initial_state=1, inverse=False):
 def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
     """calculate distance and entropy from reference (final) state
     when doing greedy descent dynamics"""
-    beta = 1./T
-    J = coeffs[1]
-    h = coeffs[0]
-    d_list = []
-    s_list = []
+    [h,J] = coeffs
     acts = []
     Nneur = initial_state.shape[0]
     current_state = zeros(Nneur)
     current_state[:] = initial_state[:]
-#    e_old = calc_energy([h1, h2], coeffs, current_state)
+    new_state = current_state
     for step in range(max_steps):
 #        d_list.append(hamming_distance(initial_state, reference_state))
 #        s_list.append(calc_entropy([h1, h2], coeffs, current_state))
-        ind = np.random.choice(range(N))
-        trans_prob = np.exp(-2*current_state[ind]*(h[ind] + np.sum(.5*np.dot(J[:,ind], current_state))))
-        r = np.random.rand(1.)
-        if r < trans_prob:
-            new_state = current_state
-            new_state[ind] = -current_state[ind]
-        acts.append(new_state)    
-        
+        indices = range(Nneur)
+        for ind in indices:
+            #ind = np.random.choice(range(N))
+            trans_prob = np.exp(-2*current_state[ind]*(h[ind] + np.sum(.5*np.dot(J[:,ind], current_state))))
+            r = np.random.rand()
+            if r < trans_prob:
+                new_state = current_state
+                new_state[ind] = -current_state[ind]
+            acts.append(new_state)    
             
-#        else:
-#            stop_ind += 1
-#            
-#        #stop if could not flip any spin during step
-#        if stop_ind == Nneur:
-#            return current_state
-               
-    #d_list, s_list
-    return current_state
+            if np.all(new_state == reference_state):
+                break
+    return np.array(acts)
 
 
 def lem(h, J, number_of_initial_patterns):
@@ -575,16 +565,16 @@ def lem_init_final(h, J, number_of_initial_patterns):
 def lem_from_data(h, J, s_act):
     """Determines LEM with GDD for all states from data"""
     N = h.shape[0]
-#    init_final_dict = {}
+    init_final_dict = {}
     patterns = []
-    for i_p, pattern in range(s_act):
+    for pattern in s_act.T:
         final_state = gdd([h, J], pattern)
         patterns.append(final_state)
-#        try:
-#            init_final_dict[final_state.tobytes()].append(pattern)
-#        except KeyError:
-#            init_final_dict[final_state.tobytes()] = [pattern]
-    return patterns
+        try:
+            init_final_dict[final_state.tobytes()].append(pattern)
+        except KeyError:
+            init_final_dict[final_state.tobytes()] = [pattern]
+    return patterns, init_final_dict
 
 def hamming_distance(sigma_1, sigma_2):
     #Calculates the Hamming distance between two neural patterns
@@ -803,9 +793,10 @@ def plm_separated(sigmas, max_steps, h, J, h_lambda, J_lambda,
         if step % 10 == 0:
             print("Step: "+str(step),"Min J: " + str(np.min(J)), "Max J: " + str(np.max(J)))
 #            print("Min d_J: " + str(np.min(J_primes)), "Max d_J: " + str(np.max(J_primes)))
-#        if step != 0 and step % 50 == 0:
-#            h_lambda *= .9
-#            J_lambda *= .9
+        if step != 0 and (min_av_max[-2][3] > np.min(J) or min_av_max[-2][-1] < np.max(J)):
+            h_lambda *= .99
+            J_lambda *= .99
+#            print(h_lambda)
         if np.all(np.abs(J_primes) < epsilon) and np.all(np.abs(h_primes) < epsilon):
             break
     return h, J, np.array(min_av_max)
@@ -1162,3 +1153,180 @@ def sherrington_kirkpatrick(N, p):
                 J[j,i] = coupling
                 
     return J
+
+#######Tuning Curve
+#def get_tuned(patterns, i, max_d):
+#    tc_list = []
+#    for a in np.where(patterns[:, i] > 0)[0]:
+#        for j in range(i-max_d, i+max_d, 1):
+#            if patterns[j % 50, a] == 1.:
+#                tc_list.append(j % 50)
+#    return tc_list
+
+#for n in range(N):
+#    tcl = get_tuned(patterns.T, n, 10)
+#    tc = zeros(N)
+#    tc[tcl] = 1
+#    ##or
+##    for tci in tcl:
+##        tc[tci] += 1
+#    fig=plt.figure(1)
+#    plt.clf()
+#    ax = fig.gca(projection='3d')
+#    theta = linspace(0, 2*pi, N)
+#    x = sin(theta)
+#    y = cos(theta)
+#    ax.scatter(x, y, tc, color='blue')
+#    plt.axis('off')
+#    plt.show()
+
+
+#writer1 = FFMpegWriter(fps=15, metadata=dict(title=''))
+#fig = plt.figure(2)
+#num_sam = 250
+#with writer.saving(fig, "head_act_2.mp4", num_sam):
+#    for i in range(num_sam):
+#        plt.clf()
+#        ax = fig.add_subplot(1,2,1)
+#        cax = ax.matshow(s_act[:,10*i:10*(i+1)])
+#        #plt.show()
+#        
+#        ax = fig.add_subplot(1,2,2)
+#        ang=angles[2*i]
+#        x0 = cos(ang)*0.5
+#        y0 = sin(ang)*0.5
+#        ax.plot([0,x0], [0,y0])
+#        ax.axis([-0.5, 0.5, -0.5, 0.5])
+#        
+#        writer.grab_frame()
+    
+#
+#length = 500
+#def animate(i):
+#    im.set_data(np.reshape(s_act[:,i*length:(i+1)*length], (N,length)))
+#    return im,
+#fig = plt.figure()
+#im =  plt.imshow(np.reshape(s_act[:,0:length], (N,length)), animated=True)
+#plt.colorbar()
+#def init():  
+#    im.set_data(np.reshape(s_act[:,0:length], (N,length)))
+#    return im,
+###
+#anim = animation.FuncAnimation(fig, animate, init_func=init,
+#                                   frames=20, interval=100, blit=True)
+##
+#anim.save("s_act_8.mp4", fps=5, extra_args=['-vcodec', 'libx264'])
+
+
+
+
+
+##########plotting functions
+def make_expected_patterns(N, n_bumps, length_bump):
+    ##look for expected pattern energies and check for local energy minimum
+    num_patts = int(N/n_bumps)
+    exp_patterns = -ones([N,num_patts]) # second value half if two bumps
+    shift = int((100-length_bump*n_bumps)/n_bumps) #int((N - 2*lenght)/4)
+    for i in range(num_patts): #half if two bumps
+        for n in range(length_bump):
+            for b_i in range(n_bumps):
+                exp_patterns[(n +  b_i*(length_bump + shift) + i)% N, i] = 1
+    return exp_patterns
+    
+
+def plot_patterns_with_energies(exp_patterns):
+    N = exp_patterns.shape[0]
+    expected_pattern_energies = []
+    lems_expected_patterns = []
+    lems = zeros([N,num_patts])
+    for i,pattern in enumerate(exp_patterns.T):
+        energy = calc_energy([h1,h2], [h,J], pattern)
+        expected_pattern_energies.append(round(energy,2))
+        lem_patt = gdd([h, J], pattern)
+        lems[:,i] = lem_patt
+        lems_expected_patterns.append(calc_energy([h1,h2], [h,J], lem_patt))
+        
+        
+    fig = plt.figure(figsize=(10,10))
+    ax = fig.add_subplot(111)
+    cax = ax.matshow(lems.T)
+    ax.set_yticklabels(['']+expected_pattern_energies)
+    ax.set_yticks([i for i in np.arange(-.5, len(expected_pattern_energies), 1.)])
+    plt.show()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.plot(expected_pattern_energies, label="Energies of the expected patterns")
+    cax = ax.plot(lems_expected_patterns, label="Energies of the LEMs of these patterns")
+    ax.legend()
+    plt.show()
+
+    print( "Energy difference:", min(expected_pattern_energies) - max(expected_pattern_energies))
+
+
+def plot_ordered_patterns(patterns_gdd):
+    tuple_codewords = map(tuple, patterns_gdd)
+    freq_dict_gdd = Counter(tuple_codewords)
+    code_probs_gdd = np.array(list(sorted(freq_dict_gdd.values(),reverse=True)), dtype="float64")/np.sum(list(freq_dict_gdd.values()))
+    
+    indexed = sorted(range(len(freq_dict_gdd.values())), key=lambda k: list(freq_dict_gdd.values())[k])
+    indexed_patterns = [list(freq_dict_gdd.keys())[i] for i in indexed]
+    
+    stored_energies = []
+    oel = []
+    n_oel = []
+    energies = []
+    for pattern in freq_dict_gdd.keys():
+        energy = calc_energy([h1,h2], [h,J], pattern)
+        stored_energies.append(energy)
+        oel.append("Prob. %.3f, Energy: %.1f" % (freq_dict_gdd.get(pattern)/float(np.sum(list(freq_dict_gdd.values()))), energy))
+        n_oel.append("Energy: %.1f" % (energy))
+        energies.append(energy)
+        
+    code_probs_gdd_cp = np.array(list(freq_dict_gdd.values()))/np.sum(list(freq_dict_gdd.values()))
+    indexed_cp = sorted(range(len(code_probs_gdd)), key=lambda k: code_probs_gdd_cp[k], reverse=True)
+    oel_cp = [oel[i] for i in indexed_cp]
+    n_oel_cp = [n_oel[i] for i in indexed_cp]
+    energies_cp = [energies[i] for i in indexed_cp]
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.plot(code_probs_gdd, 'o', label="GGD")
+    ax.set_yscale('log')
+    ax.set_xlabel("Codeword")
+    ax.set_ylabel("Probability")
+    ax.set_xticklabels(['']+n_oel_cp, rotation='vertical')
+    #ax.set_xticklabels(['']+oel_cp, rotation='vertical')
+    ax.set_xticks([i for i in np.arange(-1, len(stored_energies), 1.)])
+    plt.show()
+    
+    energies_cp = [energies[i] for i in indexed_cp]
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.plot(code_probs_gdd, energies_cp, 'x')
+    ax.set_xscale('log')
+    ax.set_xlabel("Prob")
+    ax.set_ylabel("Energy")
+    plt.show()
+    
+    
+    ###order and plot found local energy minima
+    ordered_indices = []
+    for j in range(N):
+        for i in range(len(freq_dict_gdd.keys())): 
+            if list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
+                ordered_indices.append(i)
+                
+    
+    for i in range(len(freq_dict_gdd.keys())): 
+        if i not in ordered_indices:
+            ordered_indices.append(i)
+                
+    ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
+    ordered_energies = [oel[i] for i in ordered_indices]
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.matshow(ordered_patterns, aspect=5)
+    ax.set_yticklabels(['']+ordered_energies)
+    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
+    plt.show()         
