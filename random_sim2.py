@@ -13,11 +13,13 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from simulate_oned import *
 import time as tm
+from sklearn import manifold
+from sklearn.manifold import MDS
 
-path = "/home/abel/Documents/Projects/BioMath/LEC/Saves/Head Data N=100/"
+path = "/home/abel/Documents/Projects/BioMath/LEC/Saves/Random N=100/"
 #
 N, extinp, inh, R = 100, 3, 0.235619449019, 20.0666666667
-umax, dtinv, tau, time, ell, alpha, lambda_net = 1., 10, 10, 10**4, 2., 0.25, 13
+umax, dtinv, tau, time, ell, alpha, lambda_net = 1., 10, 10, 10**5, 2., 0.25, 13
 bsize, shift, scale, dt = 10, 0, 10000, 1
 ##
 #mat = scipy.io.loadmat('animal_movement.mat')
@@ -34,32 +36,39 @@ bsize, shift, scale, dt = 10, 0, 10000, 1
 #t0 = tm.time()
 #activities, vs, thetas = sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
 #              tau, time, ell, alpha, angles, dt)
+#activities = sim_dyn_one_d_random(N, extinp, inh, R, umax, dtinv,
+#              tau, time, ell, scale)
 #print("Time:", tm.time()-t0)
 ##
-#
-#####mat = scipy.io.loadmat('data2.mat')
-#####activities =  mat['S']
-#####time = activities[:,100:-100].shape[1]
 
+
+####data from ben sim
 #mat  = scipy.io.loadmat('data2.mat')
 #activities = mat['S']
+
+#activities = np.loadtxt(path + "activities_105.csv", delimiter=',')
+
 #######bin
 #time = activities.shape[1]
-#b_act = bin_data(activities, time, 10, shift)
-###detect spikes
-#spiked_act = detect_spikes(b_act, 175)
-###determine state
-#s_act = determine_states(spiked_act)
-#
+b_act = bin_data(activities, time, 100, shift)
+##detect spikes
+spiked_act = detect_spikes(b_act, 120)
+##determine state
+s_act = determine_states(spiked_act)
 
-
-#s_act = np.loadtxt(path+"sim_50_head_ang_5.csv", delimiter=',')
+#s_act = np.loadtxt(path+"head_ang_N100.csv", delimiter=',')
 ###
 #mag_sim = np.average(s_act, axis=1)
 #fig = plt.figure()
 #ax = fig.add_subplot(111)
-#cax = ax.plot((mag_sim + 1)/2.)
+#cax = ax.plot((mag_sim + 1)/2.,label="Simulated")
+##cax = ax.plot((mag_inf + 1)/2.,label="Inferred")
+#ax.set_title("Average activity per neuron")
+#ax.set_xlabel("Neuron")
+#ax.set_ylabel("Probability of firing")
+#ax.legend()
 #plt.show()
+#print("Average spiking:" + str(np.average((mag_sim + 1)/2.)))
 ##
 #fig = plt.figure()
 #ax = fig.add_subplot(111)
@@ -71,76 +80,39 @@ bsize, shift, scale, dt = 10, 0, 10000, 1
 #cax = ax.plot(thetas[:])
 #plt.show()
 #
-#fig = plt.figure()
-#ax = fig.add_subplot(111)
-#cax = ax.imshow(s_act[:,:1000])
-#plt.show()
-##
-#
-#print(np.average((mag_sim + 1)/2.))
-#
+fig = plt.figure()
+ax = fig.add_subplot(111)
+cax = ax.imshow(s_act[:,:1000])
+plt.show()
 
-#writer1 = FFMpegWriter(fps=15, metadata=dict(title=''))
-#fig = plt.figure(2)
-#num_sam = 250
-#with writer.saving(fig, "head_act_2.mp4", num_sam):
-#    for i in range(num_sam):
-#        plt.clf()
-#        ax = fig.add_subplot(1,2,1)
-#        cax = ax.matshow(s_act[:,10*i:10*(i+1)])
-#        #plt.show()
-#        
-#        ax = fig.add_subplot(1,2,2)
-#        ang=angles[2*i]
-#        x0 = cos(ang)*0.5
-#        y0 = sin(ang)*0.5
-#        ax.plot([0,x0], [0,y0])
-#        ax.axis([-0.5, 0.5, -0.5, 0.5])
-#        
-#        writer.grab_frame()
-    
-#
-#length = 500
-#def animate(i):
-#    im.set_data(np.reshape(s_act[:,i*length:(i+1)*length], (N,length)))
-#    return im,
-#fig = plt.figure()
-#im =  plt.imshow(np.reshape(s_act[:,0:length], (N,length)), animated=True)
-#plt.colorbar()
-#def init():  
-#    im.set_data(np.reshape(s_act[:,0:length], (N,length)))
-#    return im,
-###
-#anim = animation.FuncAnimation(fig, animate, init_func=init,
-#                                   frames=20, interval=100, blit=True)
-##
-#anim.save("s_act_8.mp4", fps=5, extra_args=['-vcodec', 'libx264'])
+def plot_single_pattern(pattern):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.imshow(np.reshape(pattern, (1,-1)))
+    plt.show()
 
 
-#np.savetxt(path+"sim_50_b_106_9.csv", b_act, delimiter=",")
-#np.savetxt(path+"sim_50_head_ang.csv", s_act, delimiter=",")
-#h, J = nMF(s_act)   
-reg_method = "l2"
-#h = np.loadtxt(path+"random_50_h_" + reg_method + "_head.csv", delimiter=',')
-#J = np.loadtxt(path+"random_50_J_" + reg_method + "_head.csv", delimiter=',')
-#
-max_steps = 50
-h_lambda = .25
+#np.savetxt(path+"head_ang_N100.csv", s_act, delimiter=",")
+h, J = nMF(s_act)   
+reg_method = "sign"
+j=0
+reg_lambda = 0.01
+#h = np.loadtxt(path+"h_N100_" + str(reg_method) + "_" + str(reg_lambda) + "_" + str(j) + ".csv", delimiter=',')
+#J = np.loadtxt(path+"J_N100_" + str(reg_method) + "_" + str(reg_lambda) + "_" + str(j) + ".csv", delimiter=',')
+max_steps = 1000
+h_lambda = .5
 J_lambda = h_lambda
-reg_lambda = 0.001
 epsilon = 0.001
 t0 = tm.time()
 h, J, min_av_max_plm = plm_separated(s_act, max_steps,
                         h, J, h_lambda, J_lambda,
                         reg_method, reg_lambda, epsilon, 1.)
+print("Time:", tm.time()-t0)
 ###np.savetxt(path+"random_50_h_" + reg_method + "_head.csv", h, delimiter=",")
 ##np.savetxt(path+"random_50_J_" + reg_method + "_head.csv", J, delimiter=",")
-print("Time:", tm.time()-t0)
-
-
 
 #############Test inferred model 
-Nsamples = 10**2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+Nsamples = 10**3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
 Nflips = 1
 sample_after = 1000 #10**7   
 sample_per_steps = 100 # 10 * N
@@ -169,125 +141,23 @@ ax.set_ylabel("Inferred")
 ax.legend()
 plt.show()
 
-
-#######Tuning Curve
-#def get_tuned(patterns, i, max_d):
-#    tc_list = []
-#    for a in np.where(patterns[:, i] > 0)[0]:
-#        for j in range(i-max_d, i+max_d, 1):
-#            if patterns[j % 50, a] == 1.:
-#                tc_list.append(j % 50)
-#    return tc_list
-
-#for n in range(N):
-#    tcl = get_tuned(patterns.T, n, 10)
-#    tc = zeros(N)
-#    tc[tcl] = 1
-#    ##or
-##    for tci in tcl:
-##        tc[tci] += 1
-#    fig=plt.figure(1)
-#    plt.clf()
-#    ax = fig.gca(projection='3d')
-#    theta = linspace(0, 2*pi, N)
-#    x = sin(theta)
-#    y = cos(theta)
-#    ax.scatter(x, y, tc, color='blue')
-#    plt.axis('off')
-#    plt.show()
+print("Error:", np.sqrt(np.sum(np.square(mag_sim - mag_inf)) + np.sum(np.square(corrs_sim - corrs_inf)) + np.sum(np.square(corrs3_sim - corrs3_inf))))
 
 
 ###############LEM
-number_of_initial_patterns = 10**2
+number_of_initial_patterns = 10**3
 T = 1.
-patterns_gdd = lem(h, J, number_of_initial_patterns)
-tuple_codewords = map(tuple, patterns_gdd)
-freq_dict_gdd = Counter(tuple_codewords)
-code_probs_gdd = np.array(list(sorted(freq_dict_gdd.values(),reverse=True)), dtype="float64")/np.sum(list(freq_dict_gdd.values()))
-
-#fig = plt.figure()
-#ax = fig.add_subplot(111)
-#cax = ax.plot(code_probs_gdd, 'o', label="GGD")
-#ax.set_yscale('log')
-#ax.set_xlabel("Codeword")
-#ax.set_ylabel("Probability")
-#plt.show()
-
-indexed = sorted(range(len(freq_dict_gdd.values())), key=lambda k: list(freq_dict_gdd.values())[k])
-indexed_patterns = [list(freq_dict_gdd.keys())[i] for i in indexed]
-
-stored_energies = []
-oel = []
-for pattern in freq_dict_gdd.keys():
-    energy = calc_energy([h1,h2], [h,J], pattern)
-    stored_energies.append(energy)
-    oel.append([freq_dict_gdd.get(pattern)/float(number_of_initial_patterns), round(energy, 2)])
-    
-#fig = plt.figure()
-#ax = fig.add_subplot(111)
-#cax = ax.plot(sorted(stored_energies, reverse=True), 'x')
-#plt.show()
-
-
-###order and plot found local energy minima
-ordered_indices = []
-for j in range(N):
-    for i in range(len(freq_dict_gdd.keys())): 
-        if list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
-            ordered_indices.append(i)
-            
-
-for i in range(len(freq_dict_gdd.keys())): 
-    if i not in ordered_indices:
-        ordered_indices.append(i)
-            
-ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
-ordered_energies = [oel[i] for i in ordered_indices]
-fig = plt.figure()
-ax = fig.add_subplot(111)
-cax = ax.matshow(ordered_patterns)
-ax.set_yticklabels(['']+ordered_energies)
-ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
-plt.show()           
+#patterns_gdd = lem(h, J, number_of_initial_patterns)
+patterns_gdd, init_final_dict = lem_from_data(h, J, s_act[:,:100])  
 
 
 
 ##look for expected pattern energies and check for local energy minimum
-num_patts = N
-exp_patterns = -ones([N,num_patts]) # second value half if two bumps
-lenght = 36
-shift = int((N - 2*lenght)/2)
-for i in range(num_patts): #half if two bumps
-    for n in range(lenght):
-        exp_patterns[(n +i)% N, i] = 1
-#        exp_patterns[(n + lenght+shift +i)% N, i] = 1
-        
-expected_pattern_energies = []
-lems_expected_patterns = []
-lems = zeros([N,num_patts])
-for i,pattern in enumerate(exp_patterns.T):
-    energy = calc_energy([h1,h2], [h,J], pattern)
-    expected_pattern_energies.append(round(energy,2))
-    lem_patt = gdd([h, J], pattern)
-    lems[:,i] = lem_patt
-    lems_expected_patterns.append(calc_energy([h1,h2], [h,J], lem_patt))
-    
-    
-fig = plt.figure(figsize=(10,10))
-ax = fig.add_subplot(111)
-cax = ax.matshow(lems.T)
-ax.set_yticklabels(['']+expected_pattern_energies)
-ax.set_yticks([i for i in np.arange(-.5, len(expected_pattern_energies), 1.)])
-plt.show()
+n_bumps = 4
+length_bump = 8
+exp_patterns = make_expected_patterns(N, n_bumps, length_bump)
+plot_patterns_with_energies(exp_patterns)
 
-fig = plt.figure()
-ax = fig.add_subplot(111)
-cax = ax.plot(expected_pattern_energies, label="Energies of the expected patterns")
-cax = ax.plot(lems_expected_patterns, label="Energies of the LEMs of these patterns")
-ax.legend()
-plt.show()
-
-print( "Energy difference:", min(expected_pattern_energies) - max(expected_pattern_energies))
 
 #energy_indices = sorted(range(len(stored_energies)), key=lambda k: stored_energies[k])
 #indexed_energies = [stored_energies[i] for i in energy_indices]
@@ -313,12 +183,9 @@ print( "Energy difference:", min(expected_pattern_energies) - max(expected_patte
 ##MDS
 p=2
 #MACOF
-from sklearn.manifold import MDS
-
 number_of_patterns = len(freq_dict_gdd.values())
 dissimilarities = zeros([2*num_patts, 2*num_patts])
 combined_patterns = np.concatenate((exp_patterns.T, np.array(lems).T))
-print(combined_patterns.shape)
 pattern_array = np.array(freq_dict_gdd.keys())
 for r, dp_r in enumerate(combined_patterns):
     for s, dp_s in enumerate(combined_patterns):
@@ -336,7 +203,64 @@ ax.set_ylabel("Y")
 ax.legend()
 plt.show()
 
-#sklearn.manifold.smacof(dissimilarities, metric=True, n_components=2,
-#                        init=None, n_init=8, n_jobs=None, max_iter=300,
-#                        verbose=0, eps=0.001, random_state=None,
-#                        return_n_iter=False)
+
+
+###ISOMAP
+#df = pd.DataFrame(combined_patterns)
+#iso = manifold.Isomap(n_neighbors=7, n_components=2)
+#iso.fit(df)
+#manifold_2Da = iso.transform(df)
+#manifold_2D = pd.DataFrame(manifold_2Da, columns=['Component 1', 'Component 2'])
+#fig = plt.figure()
+#fig.set_size_inches(10, 10)
+#ax = fig.add_subplot(111)
+#ax.set_title('2D Components from Isomap')
+#ax.scatter(manifold_2D['Component 1'][:num_patts], manifold_2D['Component 2'][:num_patts], marker='.',c='b',alpha=0.7)
+#ax.scatter(manifold_2D['Component 1'][num_patts:], manifold_2D['Component 2'][num_patts:], marker='.',c='r',alpha=0.7)
+#plt.show()
+
+####http://benalexkeen.com/isomap-for-dimensionality-reduction-in-python/
+
+
+
+def get_indices_where_different(pattern1, pattern2):
+    indxs = np.where(pattern1 != pattern2)[0]
+    return indxs
+
+def make_shortest_paths_between_patterns(pattern1, pattern2):
+    indxs = get_indices_where_different(pattern1, pattern2)
+    all_paths = []
+    try:
+        for indexset in list(itertools.permutations(indxs)):
+            pattern_path = make_patterns_from_indices(indexset, pattern1, pattern2)
+            all_paths.append(pattern_path)
+    except:
+        print("Patterns are identical")
+    return all_paths
+
+def make_patterns_from_indices(indxs, begin, end):
+    pattern_path = [begin]
+    prev_pattern = np.copy(begin)
+    for ind in indxs:
+        next_pattern = np.copy(prev_pattern)
+        next_pattern[ind] = -next_pattern[ind]
+        prev_pattern = np.copy(next_pattern)
+        pattern_path.append(next_pattern)
+#    print(np.all(next_pattern == end))
+    return np.array(pattern_path)
+
+def calculate_energies_for_paths(paths):
+    energies_per_path = []
+    for path_between in paths:
+        energies_on_this_path = []
+        for pattern in path_between:
+            energies_on_this_path.append(calc_energy([h1,h2], [h,J], pattern))
+        energies_per_path.append(energies_on_this_path)
+    return energies_per_path
+
+paths = make_paths_between_patterns(exp_patterns[:,3], exp_patterns[:,4])
+enss = calculate_energies_for_paths(paths)
+average_of_paths = np.average(np.array(enss), axis=1)
+min(average_of_paths)
+
+paths[np.where(average_of_paths == np.min(min(average_of_paths)))[0][0]]
