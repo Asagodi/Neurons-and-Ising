@@ -1356,3 +1356,45 @@ def plot_ordered_patterns(patterns_gdd, h, J):
 #    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
     plt.show()         
     return ordered_patterns
+
+
+def get_indices_where_different(pattern1, pattern2):
+    indxs = np.where(np.array(pattern1) != np.array(pattern2))[0]
+    return indxs
+
+def make_shortest_paths_between_patterns(pattern1, pattern2):
+    indxs = get_indices_where_different(pattern1, pattern2)
+    all_paths = []
+    try:
+        for indexset in list(itertools.permutations(indxs)):
+            pattern_path = make_patterns_from_indices(indexset, pattern1, pattern2)
+            all_paths.append(pattern_path)
+    except:
+        print("Patterns are identical")
+    return np.array(all_paths)
+
+def make_patterns_from_indices(indxs, begin, end):
+    pattern_path = [begin]
+    prev_pattern = np.copy(begin)
+    for ind in indxs:
+        next_pattern = np.copy(prev_pattern)
+        next_pattern[ind] = -next_pattern[ind]
+        prev_pattern = np.copy(next_pattern)
+        pattern_path.append(next_pattern)
+#    print(np.all(next_pattern == end))
+    return np.array(pattern_path)
+
+def calculate_energies_for_paths(paths):
+    energies_per_path = []
+    for path_between in paths:
+        energies_on_this_path = []
+        for pattern in path_between:
+            energies_on_this_path.append(calc_energy([h1,h2], [h,J], pattern))
+        energies_per_path.append(energies_on_this_path)
+    return energies_per_path
+
+def plot_single_pattern(pattern):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.imshow(np.reshape(pattern, (1,-1)))
+    plt.show()
