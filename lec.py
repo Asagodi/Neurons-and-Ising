@@ -428,11 +428,26 @@ def mc_step_2(N, h, J, current_state, e_old, T):
     #calculate energy of new state
     e_new = -np.sum(.5*np.multiply(J, np.outer(new_state, new_state)))- np.dot(h, new_state)
     e_delta = e_new - e_old
+
     r = np.random.rand()
     if r < np.exp(- e_delta/T):
         current_state = new_state
         e_old = e_new
     return current_state, e_old
+
+def mc_step_3(N, h, J, current_state, T):
+    """Same as mc_step but with Nflips=1"""
+    ijk = np.random.randint(0,N)
+    new_state = zeros(N)
+    new_state[:] = current_state[:]
+    new_state[ijk] =   - current_state[ijk]
+    
+    #calculate energy of new state    
+    r = np.random.rand()
+    trans_prob = np.exp(-2*current_state[ijk]*(h[ijk] + np.sum(.5*np.dot(J[:,ijk], current_state))))
+    if r < trans_prob:
+        current_state = new_state
+    return current_state
 
 def metropolis_mc(h, J, Nsamples, Nflips,
                   sample_after, sample_per_steps, T):
@@ -470,7 +485,7 @@ def metropolis_mc(h, J, Nsamples, Nflips,
 
 ##############LEM + MDS
 #greedy descent dynamics
-def gdd(coeffs=[0,0], initial_state=1, inverse=False):
+def gdd(coeffs=[0,0], initial_state=1, ordered_or_random='ordered', inverse=False):
     """for each neuron, we flip its activity if the flip will decrease the
     energy. If we could not decrease the energy by flipping any
     neuron’s activity, then a local energy minimum is identified"""
@@ -481,7 +496,9 @@ def gdd(coeffs=[0,0], initial_state=1, inverse=False):
         e_old = calc_energy([h1, h2], coeffs, current_state)
         
 #       attempt to flip spins i~1,N from their current state into {s i , in order of increasing i.
-        indices = range(Nneur)
+        indices = np.arange(Nneur)
+        if ordered_or_random == 'random':
+            np.random.shuffle(indices)
         
         #random order of spin flip
 #        indices = np.random.permutation(Nneur)
@@ -525,6 +542,7 @@ def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
 #        d_list.append(hamming_distance(initial_state, reference_state))
 #        s_list.append(calc_entropy([h1, h2], coeffs, current_state))
         indices = range(Nneur)
+
         for ind in indices:
             #ind = np.random.choice(range(N))
             trans_prob = np.exp(-2*current_state[ind]*(h[ind] + np.sum(.5*np.dot(J[:,ind], current_state))))
@@ -539,14 +557,18 @@ def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
     return np.array(acts)
 
 
-def lem(h, J, number_of_initial_patterns):
+def lem(h, J, number_of_initial_patterns, ordered_or_random, init_part_active):
     """Determine local energy minima (for an Ising model)
     by Greedy Descent Dynamics (Huang and Toyoizumi, 2016)"""
     N = h.shape[0]
     patterns = []
+    thr = 1. - init_part_active
     for i_p in range(number_of_initial_patterns):
-        initial_state = np.random.choice([-1,1], N)
-        patterns.append(gdd([h, J], initial_state))
+#        initial_state = np.random.choice([-1,1], N)
+        initial_state = np.random.rand(N)
+        initial_state[initial_state>thr] = 1 
+        initial_state[initial_state<=thr] = -1
+        patterns.append(gdd([h, J], initial_state, ordered_or_random=ordered_or_random))
     return patterns
 
 def lem_init_final(h, J, number_of_initial_patterns):
@@ -799,6 +821,7 @@ def plm_separated(sigmas, max_steps, h, J, h_lambda, J_lambda,
 #            print(h_lambda)
         if np.all(np.abs(J_primes) < epsilon) and np.all(np.abs(h_primes) < epsilon):
             break
+    print("lambda", h_lambda)
     return h, J, np.array(min_av_max)
 
 def f_prime_r(sigmas, rth, params, reg_method, reg_lambda, T):
@@ -1234,8 +1257,9 @@ def make_expected_patterns(N, n_bumps, length_bump):
     return exp_patterns
     
 
-def plot_patterns_with_energies(exp_patterns):
+def plot_patterns_with_energies(h, J, exp_patterns, n_bumps):
     N = exp_patterns.shape[0]
+    num_patts = int(N/n_bumps)
     expected_pattern_energies = []
     lems_expected_patterns = []
     lems = zeros([N,num_patts])
@@ -1262,15 +1286,16 @@ def plot_patterns_with_energies(exp_patterns):
     plt.show()
 
     print( "Energy difference:", min(expected_pattern_energies) - max(expected_pattern_energies))
+    return lems
 
-
-def plot_ordered_patterns(patterns_gdd):
+def plot_ordered_patterns(patterns_gdd, h, J):
+    N = h.shape[0]
     tuple_codewords = map(tuple, patterns_gdd)
     freq_dict_gdd = Counter(tuple_codewords)
     code_probs_gdd = np.array(list(sorted(freq_dict_gdd.values(),reverse=True)), dtype="float64")/np.sum(list(freq_dict_gdd.values()))
     
-    indexed = sorted(range(len(freq_dict_gdd.values())), key=lambda k: list(freq_dict_gdd.values())[k])
-    indexed_patterns = [list(freq_dict_gdd.keys())[i] for i in indexed]
+#    indexed = sorted(range(len(freq_dict_gdd.values())), key=lambda k: list(freq_dict_gdd.values())[k])
+    #indexed_patterns = [list(freq_dict_gdd.keys())[i] for i in indexed]
     
     stored_energies = []
     oel = []
@@ -1285,7 +1310,7 @@ def plot_ordered_patterns(patterns_gdd):
         
     code_probs_gdd_cp = np.array(list(freq_dict_gdd.values()))/np.sum(list(freq_dict_gdd.values()))
     indexed_cp = sorted(range(len(code_probs_gdd)), key=lambda k: code_probs_gdd_cp[k], reverse=True)
-    oel_cp = [oel[i] for i in indexed_cp]
+    #oel_cp = [oel[i] for i in indexed_cp]
     n_oel_cp = [n_oel[i] for i in indexed_cp]
     energies_cp = [energies[i] for i in indexed_cp]
     
@@ -1295,9 +1320,9 @@ def plot_ordered_patterns(patterns_gdd):
     ax.set_yscale('log')
     ax.set_xlabel("Codeword")
     ax.set_ylabel("Probability")
-    ax.set_xticklabels(['']+n_oel_cp, rotation='vertical')
+#    ax.set_xticklabels(['']+n_oel_cp, rotation='vertical')
     #ax.set_xticklabels(['']+oel_cp, rotation='vertical')
-    ax.set_xticks([i for i in np.arange(-1, len(stored_energies), 1.)])
+#    ax.set_xticks([i for i in np.arange(-1, len(stored_energies), 1.)])
     plt.show()
     
     energies_cp = [energies[i] for i in indexed_cp]
@@ -1314,7 +1339,7 @@ def plot_ordered_patterns(patterns_gdd):
     ordered_indices = []
     for j in range(N):
         for i in range(len(freq_dict_gdd.keys())): 
-            if list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
+            if list(freq_dict_gdd.keys())[i][j-3] == -1. and list(freq_dict_gdd.keys())[i][j-2] == -1. and list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
                 ordered_indices.append(i)
                 
     
@@ -1324,9 +1349,10 @@ def plot_ordered_patterns(patterns_gdd):
                 
     ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
     ordered_energies = [oel[i] for i in ordered_indices]
-    fig = plt.figure()
+    fig = plt.figure(figsize=(7.5,7.5))
     ax = fig.add_subplot(111)
     cax = ax.matshow(ordered_patterns, aspect=5)
-    ax.set_yticklabels(['']+ordered_energies)
-    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
+#    ax.set_yticklabels(['']+ordered_energies)
+#    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
     plt.show()         
+    return ordered_patterns
