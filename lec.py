@@ -428,6 +428,8 @@ def mc_step_2(N, h, J, current_state, e_old, T):
     #calculate energy of new state
     e_new = -np.sum(.5*np.multiply(J, np.outer(new_state, new_state)))- np.dot(h, new_state)
     e_delta = e_new - e_old
+    print(e_delta, -2*current_state[ijk]*(h[ijk] + np.sum(np.dot(J[:,ijk], current_state))))
+
 
     r = np.random.rand()
     if r < np.exp(- e_delta/T):
@@ -1384,7 +1386,7 @@ def make_patterns_from_indices(indxs, begin, end):
 #    print(np.all(next_pattern == end))
     return np.array(pattern_path)
 
-def calculate_energies_for_paths(paths):
+def calculate_energies_for_paths(paths, h, J):
     energies_per_path = []
     for path_between in paths:
         energies_on_this_path = []
