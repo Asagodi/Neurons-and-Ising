@@ -8,24 +8,30 @@ Created on Sat Mar 30 14:09:17 2019
 from collections import Counter
 from neurodynex.hopfield_network import network, pattern_tools, plot_tools
 import matplotlib.pyplot as plt
-import numpy
+import numpy as np
 from scipy import *
+from lec import *
+
+
+#nr_neurons
+N=100
 
 # the letters we want to store in the hopfield network
 #letter_list = ['A', 'B', 'C', 'D']
-letter_list = ['E', 'F', 'G', 'H', 'I']
+#letter_list = ['E', 'F', 'G', 'H', 'I']
 #letter_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+letter_list = ['A', 'B', 'E', 'H', 'I']
 
 # set a seed to reproduce the same noise in the next run
-# numpy.random.seed(123)
+# np.random.seed(123)
 
 abc_dictionary =pattern_tools.load_alphabet()
 # create an instance of the class HopfieldNetwork
-hopfield_net = network.HopfieldNetwork(nr_neurons= pattern_shape[0]*pattern_shape[1])
+hopfield_net = network.HopfieldNetwork(nr_neurons= N)
+#hopfield_net = network.HopfieldNetwork(nr_neurons= pattern_shape[0]*pattern_shape[1])
 
 # create a list using Pythons List Comprehension syntax:
 pattern_list = [abc_dictionary[key] for key in letter_list ]
-#pattern_list.append(abc_dictionary['R'])
 plot_tools.plot_pattern_list(pattern_list)
 
 # how similar are the letter patterns
@@ -49,68 +55,14 @@ hopfield_net.store_patterns(pattern_list)
 #plot_tools.plot_state_sequence_and_overlap(
 #    states_as_patterns, pattern_list, reference_idx=0, suptitle="Network dynamics")
 
-def gdd(weights, initial_state):
-    """for each neuron, we flip its activity if the flip will decrease the
-    energy. If we could not decrease the energy by flipping any
-    neuron’s activity, then a local energy minimum is identified"""
-    Nneur = initial_state.shape[0]
-    current_state = numpy.zeros(Nneur)
-    current_state[:] = initial_state[:]
-    while True:
-        e_old = calc_energy(weights, current_state)
-
-#       attempt to flip spins i~1,N from their current state into {s i , in order of increasing i.
-        indices = range(Nneur)
-
-        #random order of spin flip
-#        indices = np.random.permutation(Nneur)
-        stop_ind = 0
-        for ind in indices:
-
-            new_state = current_state
-            new_state[ind] = -current_state[ind]
-            e_new = calc_energy(weights, new_state)
-            e_delta = e_new - e_old
-
-            if e_delta < 0:
-                e_old = e_new
-                current_state = new_state
-
-            else:
-                stop_ind += 1
-                current_state[ind] = -current_state[ind]
-
-            #stop if could not flip any spin during step
-            if stop_ind == Nneur:
-                return current_state
-
-    return current_state
-
-def calc_energy(weights, acts):
-    return -numpy.sum(.5*numpy.multiply(weights, numpy.outer(acts, acts)))
-
-def lem(weights, number_of_initial_patterns):
-    """Determine local energy minima (for an Ising model)
-    by Greedy Descent Dynamics (Huang and Toyoizumi, 2016)"""
-    patterns = []
-    for i_p in range(number_of_initial_patterns):
-        initial_state = numpy.random.choice([-1,1], weights.shape[0])
-        patterns.append(gdd(weights, initial_state))
-    return patterns
-
-def find_frequencies(codewords):
-    tuple_codewords = map(tuple, codewords)
-    freq_dict = Counter(tuple_codewords)
-    freqs = numpy.array(sorted(list(freq_dict.values()),
-                            reverse=True))
-    
-    return freqs
+h = zeros(N)
+J = hopfield_net.weights
 
 number_of_initial_patterns = 10**3
-patterns_gdd = lem(hopfield_net.weights, number_of_initial_patterns)
+patterns_gdd = lem(h, J, number_of_initial_patterns, 'random', 0.5)
 tuple_codewords = map(tuple, patterns_gdd)
 freq_dict_gdd = Counter(tuple_codewords)
-code_probs_gdd = numpy.array(list(sorted(freq_dict_gdd.values(),reverse=True)), dtype="float64")/numpy.sum(list(freq_dict_gdd.values()))
+code_probs_gdd = np.array(list(sorted(freq_dict_gdd.values(),reverse=True)), dtype="float64")/np.sum(list(freq_dict_gdd.values()))
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
@@ -120,15 +72,27 @@ ax.set_xlabel("Codeword")
 ax.set_ylabel("Probability")
 plt.show()
 
+num_5 = int(len(freq_dict_gdd.values())/5)+1
+
 print(len(freq_dict_gdd.values()))
-fig = plt.figure()
+fig = plt.figure(figsize=(10,10))
+energies = []
 for i in range(len(freq_dict_gdd.keys())):
-    ax = fig.add_subplot(4,4,i+1)
-    cax = ax.imshow(numpy.reshape(freq_dict_gdd.keys()[i],(10,10)))
+    energies.append(calc_energy([h1,h2], [h, hopfield_net.weights], freq_dict_gdd.keys()[i]))
+    ax = fig.add_subplot(5,num_5,i+1)
+    cax = ax.imshow(np.reshape(freq_dict_gdd.keys()[i],(10,10)))
     ax.set_title(freq_dict_gdd.values()[i]/float(number_of_initial_patterns))
     ax.axis('off')
 
-fig.tight_layout() 
+#fig.tight_layout() 
+plt.show()
+
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+cax = ax.plot(energies, 'o', label="GGD")
+ax.set_xlabel("Codeword")
+ax.set_ylabel("Energy")
 plt.show()
 
 
@@ -153,3 +117,46 @@ ax.set_xlabel("X")
 ax.set_ylabel("Y")
 ax.legend()
 plt.show()
+
+fig = plt.figure()
+ax = fig.add_subplot(1,1,1)
+cax = ax.imshow(dissimilarities)
+plt.show()
+
+
+Nsamples = 10**3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+Nflips = 1
+sample_after = 1000 #10**7   
+sample_per_steps = N*10 # 10 * N
+s_act_inferred = metropolis_mc(h, J, Nsamples, Nflips,
+                  sample_after, sample_per_steps, 1.)
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+cax = ax.imshow(s_act_inferred[:,:1000])
+plt.show()
+
+
+ordered_patterns = plot_ordered_patterns(patterns_gdd, h, J)
+#paths = make_shortest_paths_between_patterns(ordered_patterns[12], ordered_patterns[13])
+#enss = calculate_energies_for_paths(paths, h, J)
+#average_of_paths = np.average(np.array(enss), axis=1)
+#min(average_of_paths)
+#
+####minimum average
+#paths[np.where(average_of_paths == np.min(min(average_of_paths)))[0][0]]
+#fig = plt.figure()
+#ax = fig.add_subplot(111)
+#cax = ax.imshow(paths[np.where(average_of_paths == np.min(min(average_of_paths)))[0][0]])
+#plt.show()
+
+def plot_path_hopfield(path):
+    for pattern in path:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        cax = ax.imshow(np.reshape(pattern,(10,10)))
+        plt.show()
+
+
+###minmax
+#paths[np.where(max_along_paths==np.min(max_along_paths))[0]]
