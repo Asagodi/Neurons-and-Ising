@@ -428,8 +428,6 @@ def mc_step_2(N, h, J, current_state, e_old, T):
     #calculate energy of new state
     e_new = -np.sum(.5*np.multiply(J, np.outer(new_state, new_state)))- np.dot(h, new_state)
     e_delta = e_new - e_old
-    print(e_delta, -2*current_state[ijk]*(h[ijk] + np.sum(np.dot(J[:,ijk], current_state))))
-
 
     r = np.random.rand()
     if r < np.exp(- e_delta/T):
@@ -446,12 +444,12 @@ def mc_step_3(N, h, J, current_state, T):
     
     #calculate energy of new state    
     r = np.random.rand()
-    trans_prob = np.exp(-2*current_state[ijk]*(h[ijk] + np.sum(.5*np.dot(J[:,ijk], current_state))))
+    trans_prob = np.exp(-2*current_state[ijk]*(h[ijk] + np.sum(np.dot(J[:,ijk], current_state)))/T)
     if r < trans_prob:
         current_state = new_state
     return current_state
 
-def metropolis_mc(h, J, Nsamples, Nflips,
+def metropolis_mc(h, J, Nsamples,
                   sample_after, sample_per_steps, T):
     """Metropolis Monte Carlo simulation with spin flip
     Nsteps: maximal number of steps
@@ -466,24 +464,34 @@ def metropolis_mc(h, J, Nsamples, Nflips,
     mc_samples = zeros([N, Nsamples])
     Nsteps = int(Nsamples * sample_per_steps)
     current_state = initial_state
-    e_old = -np.sum(.5*np.multiply(J, np.outer(current_state, current_state)))- np.dot(h, current_state)
+#    e_old = -np.sum(.5*np.multiply(J, np.outer(current_state, current_state)))- np.dot(h, current_state)
     for step in range(0, sample_after, 1):
         #mc_step_2 faster if Nflips=1
-        current_state, e_old = mc_step_2(N, h, J, current_state, e_old, T)
+        current_state = mc_step_3(N, h, J, current_state, T)
     
-#    bar = Bar('MC simulation', max=Nsamples)
-#    bar.next()
     for step in range(0, Nsteps, 1):
-        current_state, e_old = mc_step_2(N, h, J, current_state, e_old, T)
+        current_state = mc_step_3(N, h, J, current_state, T)
         
         if step % sample_per_steps == 0:
-#            bar.next()
             mc_samples[:, int(step / sample_per_steps)] = current_state
-            
-#    bar.finish()    
+               
     return mc_samples
 
-
+def mc_with_start_pattern(h, J, Nsamples, initial_state, sample_after, sample_per_steps, T):
+    """Metropolis Monte Carlo simulation with starting point"""
+    N = h.shape[0]
+    mc_samples = zeros([N, Nsamples])
+    Nsteps = int(Nsamples * sample_per_steps)
+    current_state = initial_state
+    for step in range(0, sample_after, 1):
+        current_state = mc_step_3(N, h, J, current_state, T)
+    for step in range(0, Nsteps, 1):
+        current_state = mc_step_3(N, h, J, current_state, T)
+        
+        if step % sample_per_steps == 0:
+            mc_samples[:, int(step / sample_per_steps)] = current_state
+               
+    return mc_samples
 
 ##############LEM + MDS
 #greedy descent dynamics
@@ -559,7 +567,7 @@ def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
     return np.array(acts)
 
 
-def lem(h, J, number_of_initial_patterns, ordered_or_random, init_part_active):
+def lem(h, J, number_of_initial_patterns, init_part_active, ordered_or_random):
     """Determine local energy minima (for an Ising model)
     by Greedy Descent Dynamics (Huang and Toyoizumi, 2016)"""
     N = h.shape[0]
@@ -586,13 +594,13 @@ def lem_init_final(h, J, number_of_initial_patterns):
             init_final_dict[final_state.tobytes()] = [initial_state]
     return init_final_dict
 
-def lem_from_data(h, J, s_act):
+def lem_from_data(h, J, s_act, ordered_or_random):
     """Determines LEM with GDD for all states from data"""
     N = h.shape[0]
     init_final_dict = {}
     patterns = []
     for pattern in s_act.T:
-        final_state = gdd([h, J], pattern)
+        final_state = gdd([h, J], pattern, ordered_or_random)
         patterns.append(final_state)
         try:
             init_final_dict[final_state.tobytes()].append(pattern)
@@ -1364,14 +1372,18 @@ def get_indices_where_different(pattern1, pattern2):
     indxs = np.where(np.array(pattern1) != np.array(pattern2))[0]
     return indxs
 
-def make_shortest_paths_between_patterns(pattern1, pattern2):
+
+def make_np_shortest_paths(pattern1, pattern2, Np):
+    Np = min(Np, 2**get_indices_where_different(pattern1, pattern2).shape[0])
     indxs = get_indices_where_different(pattern1, pattern2)
     all_paths = []
     try:
-        for indexset in list(itertools.permutations(indxs)):
-            pattern_path = make_patterns_from_indices(indexset, pattern1, pattern2)
+        for ip in range(Np):
+            np.random.shuffle(indxs)
+            pattern_path = make_patterns_from_indices(indxs, pattern1, pattern2)
             all_paths.append(pattern_path)
     except:
+        all_paths = [pattern1]
         print("Patterns are identical")
     return np.array(all_paths)
 
