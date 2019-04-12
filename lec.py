@@ -572,7 +572,7 @@ def lem(h, J, number_of_initial_patterns, init_part_active, ordered_or_random):
     by Greedy Descent Dynamics (Huang and Toyoizumi, 2016)"""
     N = h.shape[0]
     patterns = []
-    thr = 1. - init_part_active
+    thr = 1 - init_part_active
     for i_p in range(number_of_initial_patterns):
 #        initial_state = np.random.choice([-1,1], N)
         initial_state = np.random.rand(N)
@@ -1321,7 +1321,7 @@ def plot_ordered_patterns(patterns_gdd, h, J):
     code_probs_gdd_cp = np.array(list(freq_dict_gdd.values()))/np.sum(list(freq_dict_gdd.values()))
     indexed_cp = sorted(range(len(code_probs_gdd)), key=lambda k: code_probs_gdd_cp[k], reverse=True)
     #oel_cp = [oel[i] for i in indexed_cp]
-    n_oel_cp = [n_oel[i] for i in indexed_cp]
+#    n_oel_cp = [n_oel[i] for i in indexed_cp]
     energies_cp = [energies[i] for i in indexed_cp]
     
     fig = plt.figure()
@@ -1358,7 +1358,7 @@ def plot_ordered_patterns(patterns_gdd, h, J):
             ordered_indices.append(i)
                 
     ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
-    ordered_energies = [oel[i] for i in ordered_indices]
+#    ordered_energies = [oel[i] for i in ordered_indices]
     fig = plt.figure(figsize=(7.5,7.5))
     ax = fig.add_subplot(111)
     cax = ax.matshow(ordered_patterns, aspect=5)
@@ -1412,3 +1412,210 @@ def plot_single_pattern(pattern):
     ax = fig.add_subplot(111)
     cax = ax.imshow(np.reshape(pattern, (1,-1)))
     plt.show()
+    
+    
+def bethe(m, C, J_init, eta, max_steps, damp_fact):
+    """SUSPROP Huang 2012
+    m:  measured magnetization m_i = <sigma_i>_data
+    C: connected correlation <sigma_i sigma_j>_data - m_im_j
+    """
+    N = m.shape[0]
+    J = J_init
+    
+    #the message m_{i→j} is randomly initialized in the interval [−1.0,1.0]
+    mij_mat = np.random.uniform(-1.,1., [N,N])
+    
+    #g i→j,k = 0, if i = k, and 1.0 otherwise
+    gijk = zeros([N,N,N])
+    for i in range(N):
+        gijk[i,:,i] = ones(N)
+    
+    for t in range(max_steps):
+        for i in range(N):
+            for j in range(N):
+                #cavity magnetization of variable i in the absence of variable j denoted
+                mij = (m[i] - mij_mat[j,i]*np.tanh(J[i,j]))/(1-m[i]*mij_mat[j,i]*np.tanh(J[i,j]))
+                mij_mat[i,j] = mij       
+        
+        for i in range(N):
+            for j in range(N):
+                for k in range(N):
+                    #cavity susceptibility
+                    gijk[i,j,k] = np.dot(np.multiply(1-np.square(mij_mat[i,:]), 1-np.square(np.multiply(mij_mat[i,:],np.tanh(J[:,i])))), np.tanh(np.multiply(J[:,i], gijk[:,i,k])))
+                    if i==k:
+                        gijk[i,j,k] += 1.
+        
+        C_tilde = zeros([N,N])
+        for i in range(N):
+            for j in range(N):
+                C_tilde[i,j] = C[i,j] - (1-np.square(m[i])) * gijk[i,j,j]/(gijk[j,i,j]) + m[i]*m[j]
+                
+#        C_tilde = C - np.multiply((1-np.square(m)), np.diagonal(gijk, axis1=0, axis2=2))/np.diagonal(gijk, axis1=0, axis2=2) #transpose??
+        
+        #J_new 
+        for i in range(N):
+            for j in range(N): 
+                J[i,j] = damp_fact/2.*np.log(((1+C_tilde[i,j])*(1-mij_mat[i,j]*mij_mat[j,i]))/((1+C_tilde[i,j])*(1+mij_mat[i,j]*mij_mat[j,i])))  + (1-damp_fact)*J[i,j]
+        
+        np.fill_diagonal(J, 0)
+        
+    h = zeros(N)
+    for i in range(N):
+        h[i] = np.arctanh(m[i]) - np.dot(J[:,i], mij_mat[:,i])
+    return h, J
+    
+
+def belief_propagation(m, C, h, J, max_steps, eta):
+    """BP Huang 2012
+    m:  measured magnetization m_i = <sigma_i>_data
+    C: connected correlation <sigma_i sigma_j>_data - m_im_j
+    """
+    N = m.shape[0]
+    J = J_init
+    
+    #the message m_{i→j} is randomly initialized in the interval [−1.0,1.0]
+    mij_mat = np.random.uniform(-1.,1., [N,N])
+    mij_tilde = zeros([N,N])
+    
+    #g i→j,k = 0, if i = k, and 1.0 otherwise
+    gijk = zeros([N,N,N])
+    for i in range(N):
+        gijk[i,:,i] = ones(N)
+    
+    for t in range(max_steps):
+        
+        for i in range(N):
+            for j in range(N):
+                mnj = mij_mat[i,:][~(np.arange(len(mij_mat)) == j)]
+                mij = (exp(h[i]) * np.prod(1+mnj) - exp(-h[i])* np.prod(1-mnj))/(exp(h[i]) * np.prod(1+mnj) + exp(-h[i])* np.prod(1-mnj))
+                mij_mat[i,j] = mij       
+                
+                
+        for i in range(N):
+            for j in range(N):
+                mij_tilde[i,j] = np.tanh(J[i,j]*mij_mat[i,j])
+        
+        for i in range(N):
+            for j in range(N):
+                for k in range(N):
+                    sum_gijk = 0
+                    for l in range(N):
+                        if l!=j:
+                            sum_gijk += (1-mij_mat[l,i]**2)/(1-(mij_mat[l,i]*np.tanh(J[l,i]))**2)*np.tanh(J[l,i]*gijk[l,i,k])
+                    
+                    gijk[i,j,k] = sum_gijk
+                    if i==k:
+                        gijk[i,j,k] += 1.
+        
+    C_tilde = zeros([N,N])
+    for i in range(N):
+        for j in range(N):
+            C_tilde[i,j] = C[i,j] - (1-np.square(m[i])) * gijk[i,j,j]/(gijk[j,i,j]) + m[i]*m[j]
+                
+        
+    return C_tilde
+
+
+def entropy_BP():
+    
+    return entropy
+
+
+def message_passing(h, J, max_steps):
+    N = J.shape[0]
+    mia = zeros([N,N])
+    mbi_tilde = zeros([N,N])
+    for step in range(max_steps):
+        for i in range(N):
+            for j in range(N):
+                mia[i,j] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:][~(np.arange(N) == j)])))
+        
+
+        for i in range(N):
+            for j in range(N):
+                mbi_tilde[j,i] = np.tanh(J[j,i] * mia[j,i])
+    
+    return mia, mbi_tilde
+
+
+def free_energy(h, J, mia, mbi_tilde):
+    F = 0
+    for i in range(N):
+        F += free_energy_contribution_one_neuron(i, h, J, mbi_tilde)
+        for j in range(N):
+            F -= free_energy_contribution_one_interaction(i, j, h, J, mia)
+    return F
+
+
+def free_energy_contribution_one_neuron(i, h, J, mbi_tilde):
+    Hi = H(i,1,h,J,mbi_tilde)#np.exp(h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+mbi_tilde[:,i]))))
+    Hi += H(i,-1,h,J,mbi_tilde)#np.exp(-h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1-mbi_tilde[:,i]))))
+    return -np.log(Hi)#-ln Z_i = 
+
+def free_energy_contribution_one_interaction(i, j, h, J, mia):
+    return -np.log(np.cosh(J[i,j])) - np.log(1+np.tanh(J[i,j]*np.prod(mia[:,j]))) #-ln Z_a
+
+
+
+def energy_of_neural_population(h, J, mia, mbi_tilde):
+    E = 0
+    for i in range(N):
+        E += energy_contribution_one_neuron(i, h, J, mia, mbi_tilde)
+        for j in range(N):
+            E += energy_contribution_one_interaction(i, j, h, J, mia)
+    return E
+
+def H(i,x,h,J,mbi_tilde):
+    return np.exp(x*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+x*mbi_tilde[:,i]))))
+
+def G(i,x,h,J,mia,mbi_tilde):
+    Gi = 0
+    N= h.shape[0]
+    for j in range(N):
+        Gi+=np.exp(x*h[i])*J[i,j]*np.sinh(J[i,j]*(1+x*mbi_tilde[j,i]))+x*J[i,j]*np.cosh(J[i,j]*(1-np.tanh(J[i,j])**2) * mia[j,i]) *  np.prod(np.multiply(J[i,:][~(np.arange(N) == j)], (1+x*mbi_tilde[i,:][~(np.arange(N) == j)])))
+    return np.exp(x*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+x*mbi_tilde[:,i]))))
+
+
+def energy_contribution_one_neuron(i, h, J, mia, mbi_tilde):
+    return h[i]* (H(i,1.,h,J,mbi_tilde) - H(i,-1.,h,J,mbi_tilde)) + (G(i,1.,h,J,mia,mbi_tilde) + G(i,-1.,h,J,mia,mbi_tilde))/(H(i,1.,h,J,mbi_tilde) + H(i,-1.,h,J,mbi_tilde))
+     
+    
+    
+def energy_contribution_one_interaction(i, j, h, J, mia):
+    ###np.prod(mia[i,:]) should be just i and j? mia[i,j]*mia[j,j]
+    #delta_E = J[i,j] * (np.tanh(J[i,j] + np.prod(mia[i,:])))/(1+np.tanh(J[i,j]*np.prod(mia[i,:])))
+    delta_E = J[i,j] * (np.tanh(J[i,j] + mia[i,j]*mia[j,j]))/(1+np.tanh(J[i,j]*mia[i,j]*mia[j,j]))
+
+    return delta_E
+
+
+def S(h, J, max_steps):
+    #returns S = -F + E ##Huang 2016
+    mia, mbi_tilde = message_passing(h, J, max_steps)
+    F = free_energy(h, J, mia, mbi_tilde)
+    E = energy_of_neural_population(h, J, mia, mbi_tilde)
+    return -F + E
+
+
+def model_spiking_rate(h, mbi_tilde):
+    return np.tanh(h + np.sum(np.arctanh(mbi_tilde), axis=0))
+
+
+def multi_neuron_correlation(J, mia):
+    #corrs = (np.tanh(J) + np.prod(mia, axis=1))/(1+np.tanh(np.prod(np.multiply(J,mia), axis=1)))
+    N = J.shape[0]
+    corrs = zeros([N,N])
+    for i in range(N):
+        for j in range(N):
+            corrs[i,j] = (np.tanh(J[i,j]) + mia[i,j]*mia[j,j])/(1+np.tanh(J[i,j]*mia[i,j]*mia[j,j]))
+    return corrs
+
+
+
+
+def make_hopfield_weights(pattern_list):
+    N = pattern_list[0].shape[0]
+    weights = zeros([N, N])
+    for pattern in pattern_list:
+        weights += np.outer(pattern, pattern)   
+    return weights/N
