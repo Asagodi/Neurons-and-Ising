@@ -1521,6 +1521,11 @@ def entropy_BP():
     return entropy
 
 
+
+
+
+###Huang 2016 Clustering...
+#without x \sigma^* \sigma
 def message_passing(h, J, max_steps):
     N = J.shape[0]
     mia = zeros([N,N])
@@ -1528,8 +1533,9 @@ def message_passing(h, J, max_steps):
     for step in range(max_steps):
         for i in range(N):
             for j in range(N):
-                mia[i,j] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:][~(np.arange(N) == j)])))
+                mia[i,j] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:][~(np.arange(N) == j)]))) 
         
+#        np.fill_diagonal(mia, 0)
 
         for i in range(N):
             for j in range(N):
@@ -1539,6 +1545,7 @@ def message_passing(h, J, max_steps):
 
 
 def free_energy(h, J, mia, mbi_tilde):
+    N = h.shape[0]
     F = 0
     for i in range(N):
         F += free_energy_contribution_one_neuron(i, h, J, mbi_tilde)
@@ -1598,7 +1605,12 @@ def S(h, J, max_steps):
 
 
 def model_spiking_rate(h, mbi_tilde):
-    return np.tanh(h + np.sum(np.arctanh(mbi_tilde), axis=0))
+#    N = h.shape[0]
+#    mi = zeros(N)
+#    for i in range(N):
+#        mi[i] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:]))) 
+    
+    return np.tanh(h + np.sum(np.arctanh(mbi_tilde), axis=1))
 
 
 def multi_neuron_correlation(J, mia):
@@ -1607,10 +1619,21 @@ def multi_neuron_correlation(J, mia):
     corrs = zeros([N,N])
     for i in range(N):
         for j in range(N):
-            corrs[i,j] = (np.tanh(J[i,j]) + mia[i,j]*mia[j,j])/(1+np.tanh(J[i,j]*mia[i,j]*mia[j,j]))
+            corrs[i,j] = (np.tanh(J[i,j]) + mia[i,j]*mia[j,i])/(1+np.tanh(J[i,j]*mia[i,j]*mia[j,i]))
     return corrs
 
 
+def learning_eqs(mag_sim, corrs_sim, h, J, learning_rate, max_steps):
+    min_av_max = []
+    for step in range(max_steps):
+        mia, mbi_tilde = message_passing(h, J, 20)
+        h += learning_rate * (mag_sim - model_spiking_rate(h, mbi_tilde))
+        J += learning_rate * (corrs_sim - multi_neuron_correlation(J, mia))
+        min_av_max.append(np.array([np.min(h), np.average(h), 
+                                     np.max(h),
+                                     np.min(J), np.average(J), 
+                                     np.max(J)]))
+    return h, J, np.array(min_av_max)
 
 
 def make_hopfield_weights(pattern_list):
