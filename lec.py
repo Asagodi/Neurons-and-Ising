@@ -1525,18 +1525,25 @@ def entropy_BP():
 
 
 ###Huang 2016 Clustering...
-#without x \sigma^* \sigma
+
 def message_passing(h, J, max_steps):
     N = J.shape[0]
     mia = zeros([N,N])
     mbi_tilde = zeros([N,N])
+#    if x != 0.:
+#        #with x \sigma^* \sigma
+#        h_var = beta*h + x*ref_sigma
+#    else:
+#        #without x \sigma^* \sigma
+#        h_var = h
+#    if beta != 1.:
+#        J_var = beta*J
+#    else:
+#        J_var = J
     for step in range(max_steps):
         for i in range(N):
             for j in range(N):
                 mia[i,j] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:][~(np.arange(N) == j)]))) 
-        
-#        np.fill_diagonal(mia, 0)
-
         for i in range(N):
             for j in range(N):
                 mbi_tilde[j,i] = np.tanh(J[j,i] * mia[j,i])
@@ -1553,38 +1560,48 @@ def free_energy(h, J, mia, mbi_tilde):
             F -= free_energy_contribution_one_interaction(i, j, h, J, mia)
     return F
 
+def free_energy_density(h, J, mia, mbi_tilde):
+    N = h.shape[0]
+    f = 0
+    for i in range(N):
+        f += free_energy_contribution_one_neuron(i, h, J, mbi_tilde)/float(N)
+        for j in range(N):
+            f -= float(N-1)/N*free_energy_contribution_one_interaction(i, j, h, J, mia)
+    return f
+
 
 def free_energy_contribution_one_neuron(i, h, J, mbi_tilde):
     Hi = H(i,1,h,J,mbi_tilde)#np.exp(h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+mbi_tilde[:,i]))))
     Hi += H(i,-1,h,J,mbi_tilde)#np.exp(-h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1-mbi_tilde[:,i]))))
     return -np.log(Hi)#-ln Z_i = 
 
-def free_energy_contribution_one_interaction(i, j, h, J, mia):
+def free_energy_contribution_one_interaction(i, j, h, J,  mia):
     return -np.log(np.cosh(J[i,j])) - np.log(1+np.tanh(J[i,j]*np.prod(mia[:,j]))) #-ln Z_a
 
 
 
 def energy_of_neural_population(h, J, mia, mbi_tilde):
     E = 0
+    N = h.shape[0]
     for i in range(N):
-        E += energy_contribution_one_neuron(i, h, J, mia, mbi_tilde)
+        E -= energy_contribution_one_neuron(i, h, J, mia, mbi_tilde)
         for j in range(N):
             E += energy_contribution_one_interaction(i, j, h, J, mia)
     return E
 
-def H(i,x,h,J,mbi_tilde):
-    return np.exp(x*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+x*mbi_tilde[:,i]))))
+def H(i,y,h,J,mbi_tilde):
+    return np.exp(y*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+y*mbi_tilde[:,i]))))
 
-def G(i,x,h,J,mia,mbi_tilde):
+def G(i,y,h,J,mia,mbi_tilde):
     Gi = 0
     N= h.shape[0]
     for j in range(N):
-        Gi+=np.exp(x*h[i])*J[i,j]*np.sinh(J[i,j]*(1+x*mbi_tilde[j,i]))+x*J[i,j]*np.cosh(J[i,j]*(1-np.tanh(J[i,j])**2) * mia[j,i]) *  np.prod(np.multiply(J[i,:][~(np.arange(N) == j)], (1+x*mbi_tilde[i,:][~(np.arange(N) == j)])))
-    return np.exp(x*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+x*mbi_tilde[:,i]))))
+        Gi+=np.exp(y*h[i])*(J[i,j]*np.sinh(J[i,j]*(1+y*mbi_tilde[j,i]))+y*J[i,j]*np.cosh(J[i,j]*(1-np.tanh(J[i,j])**2) * mia[j,i])) *  np.prod(np.multiply(J[i,:][~(np.arange(N) == j)], (1+y*mbi_tilde[i,:][~(np.arange(N) == j)])))
+    return np.exp(y*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+y*mbi_tilde[:,i]))))
 
 
 def energy_contribution_one_neuron(i, h, J, mia, mbi_tilde):
-    return h[i]* (H(i,1.,h,J,mbi_tilde) - H(i,-1.,h,J,mbi_tilde)) + (G(i,1.,h,J,mia,mbi_tilde) + G(i,-1.,h,J,mia,mbi_tilde))/(H(i,1.,h,J,mbi_tilde) + H(i,-1.,h,J,mbi_tilde))
+    return h[i]* ((H(i,1.,h,J,mbi_tilde) - H(i,-1.,h,J,mbi_tilde)) + G(i,1.,h,J,mia,mbi_tilde) + G(i,-1.,h,J,mia,mbi_tilde))/(H(i,1.,h,J,mbi_tilde) + H(i,-1.,h,J,mbi_tilde))
      
     
     
@@ -1596,13 +1613,38 @@ def energy_contribution_one_interaction(i, j, h, J, mia):
     return delta_E
 
 
-def S(h, J, max_steps):
+def S(h, J, x, beta, ref_sigma, max_steps):
+    h_var = beta*h + x*ref_sigma
+    J_var = beta*J
     #returns S = -F + E ##Huang 2016
-    mia, mbi_tilde = message_passing(h, J, max_steps)
-    F = free_energy(h, J, mia, mbi_tilde)
-    E = energy_of_neural_population(h, J, mia, mbi_tilde)
+    mia, mbi_tilde = message_passing(h_var, J_var, max_steps)
+    F = free_energy(h_var, J_var, mia, mbi_tilde)
+    E = energy_of_neural_population(h_var, J_var, mia, mbi_tilde)
     return -F + E
 
+
+def q_tilde(h_var, J_var, ref_sigma, mia, mbi_tilde):
+    N = h_var.shape[0]
+    q_til = zeros(N)
+    for i in range(N):
+        q_til[i] = -(ref_sigma[i]*H(i,1,h_var,J_var,mbi_tilde) - ref_sigma[i]*H(i,-1,h_var,J_var,mbi_tilde))/(H(i,1,h_var,J_var,mbi_tilde) + H(i,-1,h_var,J_var,mbi_tilde))
+    
+    return np.sum(q_til)
+
+def s_q(h, J, xs, beta, ref_sigma, max_steps):
+    """Eq 4 in Huand 2013
+    s( q̃) = min [ f (x) − xq̃],"""
+    ent_list = []
+    for x in xs:
+        h_var = beta*h + x*ref_sigma
+        J_var = beta*J
+        mia, mbi_tilde = message_passing(h_var, J_var, max_steps)
+        f = free_energy_density(h_var, J_var, mia, mbi_tilde)
+        q_til = q_tilde(h_var, J_var, ref_sigma, mia, mbi_tilde)
+        ent_list.append(f - x*q_til)
+    
+    return ent_list
+#    return min(ent_list) #, xs[np.where(ent_list == min(ent_list))]
 
 def model_spiking_rate(h, mbi_tilde):
 #    N = h.shape[0]
@@ -1634,7 +1676,143 @@ def learning_eqs(mag_sim, corrs_sim, h, J, learning_rate, max_steps):
                                      np.min(J), np.average(J), 
                                      np.max(J)]))
     return h, J, np.array(min_av_max)
+ 
+    
 
+def calc_q(h, ref_sigma, mbi_tilde):
+    N=h.shape[0]
+    mi = model_spiking_rate(h, mbi_tilde)
+    return np.dot(ref_sigma, mi)/N
+
+def q_to_d(q):
+    return (1-q)/2
+
+def d_to_q(d):
+    return 1-2*d
+
+def secant(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_steps_sq, max_steps_mp):
+    q = d_to_q(d)
+    J_var = beta*J
+    #if q_tilde = q
+    #calc s(d)
+    s_q_tilde = min(s_q(h, J, xs, beta, ref_sigma, max_steps_sq))
+    xk_1 = x0
+    xk = x1
+    h_var = beta*h + xk_1*ref_sigma
+    mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+    fx_prev = free_energy_density(h_var, J_var, mia, mbi_tilde)
+    F_prev = fx_prev + xk_1*q + s_q_tilde
+    for k in range(max_steps_k):
+        h_var = beta*h + xk*ref_sigma
+        mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+        fx_curr = free_energy_density(h_var, J_var, mia, mbi_tilde)
+        F_curr = fx_curr + xk*q + s_q_tilde
+        
+        B_k = (F_curr - F_prev)/(xk - xk_1)
+        pk = -F_curr/B_k
+        xk_1 = xk
+        xk = xk + pk
+        F_prev = F_curr
+        print(xk)
+        if abs(xk - xk_1) < epsilon:
+            break
+    
+    return xk
+
+
+def secant2(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_steps_sq, max_steps_mp):
+    q_tilde = d_to_q(d)
+    J_var = beta*J
+    N=h.shape[0]
+    #calc s(d)
+    
+#    ent_list = []
+#    for x in xs:
+#        h_var = beta*h + x*ref_sigma
+#        J_var = beta*J
+#        mia, mbi_tilde = message_passing(h_var, J_var, max_steps_sq)
+#        f = free_energy_density(h_var, J_var, mia, mbi_tilde)
+#        ent_list.append(f - x*q_tilde)
+#    s_q_tilde = min(ent_list)
+#    print(s_q_tilde)
+    
+    #secant method
+    xk_1 = x0
+    xk = x1
+    h_var = beta*h + xk_1*ref_sigma
+    mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+#    fx_prev = free_energy(h_var, J_var, mia, mbi_tilde)/float(N)
+    s_prev = S(h, J, xk_1, beta, ref_sigma, max_steps_mp)/float(N)
+#    q_prev = calc_q(h_var, ref_sigma, mbi_tilde)
+#    F_prev = -fx_prev - xk_1*q_tilde #+ s_q_tilde
+    F_prev = s_prev
+    
+    for k in range(max_steps_k):
+        h_var = beta*h + xk*ref_sigma
+        mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+#        fx_curr = free_energy(h_var, J_var, mia, mbi_tilde)/float(N)
+        s_curr = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N)
+#        q_curr = calc_q(h_var, ref_sigma, mbi_tilde)
+#        F_curr = -fx_curr - xk*q_tilde #+ s_q_tilde
+        F_curr = s_curr - xk*q_tilde
+#        print("fx:", fx_curr - fx_prev)
+        
+        B_k = (F_curr - F_prev)/(xk - xk_1)
+        pk = -F_curr/B_k
+        xk_1 = xk
+        xk = xk + pk
+        
+#        print("F:", F_prev - F_curr, "X:", xk - xk_1, "B:", B_k)
+        if abs(xk - xk_1) < epsilon or abs(F_curr - F_prev) < epsilon:
+            h_var = beta*h + xk*ref_sigma
+            mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+#            fx_curr = free_energy_density(h_var, J_var, mia, mbi_tilde)
+            break
+        
+        F_prev = F_curr
+#        s = -fx_curr + energy_of_neural_population_density(h_var, J_var, mia, mbi_tilde)
+    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) #- xk*q_tilde
+    return xk, s
+
+
+def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_steps_sq, max_steps_mp):
+    q_tilde = d_to_q(d)
+    J_var = beta*J
+    N=h.shape[0]
+    #calc s(d)
+    
+    #secant method
+    xk_1 = x0
+    xk = x1
+    h_var = beta*h + xk_1*ref_sigma
+    mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+    mag = model_spiking_rate(h_var, mbi_tilde)
+    F_prev = np.dot(ref_sigma, mag)/N - q_tilde
+    
+    for k in range(max_steps_k):
+        h_var = beta*h + xk*ref_sigma
+        mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+        mag = model_spiking_rate(h_var, mbi_tilde)
+        F_curr = np.dot(ref_sigma, mag)/N - q_tilde
+        
+        B_k = (F_curr - F_prev)/(xk - xk_1)
+        pk = -F_curr/B_k
+        xk_1 = xk
+        xk = xk + pk
+        
+#        print("F:", F_prev - F_curr, "X:", xk - xk_1, "B:", B_k)
+        if abs(xk - xk_1) < epsilon or abs(F_curr - F_prev) < epsilon:
+            h_var = beta*h + xk*ref_sigma
+            mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+#            fx_curr = free_energy_density(h_var, J_var, mia, mbi_tilde)
+            break
+        
+        F_prev = F_curr
+#        s = -fx_curr + energy_of_neural_population_density(h_var, J_var, mia, mbi_tilde)
+    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) - xk*q_tilde
+    return xk, s
+
+###Hopfield 
 
 def make_hopfield_weights(pattern_list):
     N = pattern_list[0].shape[0]
