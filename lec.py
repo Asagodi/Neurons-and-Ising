@@ -1560,15 +1560,14 @@ def free_energy(h, J, mia, mbi_tilde):
             F -= free_energy_contribution_one_interaction(i, j, h, J, mia)
     return F
 
-def free_energy_density(h, J, mia, mbi_tilde):
-    N = h.shape[0]
-    f = 0
-    for i in range(N):
-        f += free_energy_contribution_one_neuron(i, h, J, mbi_tilde)/float(N)
-        for j in range(N):
-            f -= float(N-1)/N*free_energy_contribution_one_interaction(i, j, h, J, mia)
-    return f
-
+#def free_energy_density(h, J, mia, mbi_tilde):
+#    N = h.shape[0]
+#    f = 0
+#    for i in range(N):
+#        f += free_energy_contribution_one_neuron(i, h, J, mbi_tilde)/float(N)
+#        for j in range(N):
+#            f -= float(N-1)/N*free_energy_contribution_one_interaction(i, j, h, J, mia)
+#    return f
 
 def free_energy_contribution_one_neuron(i, h, J, mbi_tilde):
     Hi = H(i,1,h,J,mbi_tilde)#np.exp(h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+mbi_tilde[:,i]))))
@@ -1576,7 +1575,8 @@ def free_energy_contribution_one_neuron(i, h, J, mbi_tilde):
     return -np.log(Hi)#-ln Z_i = 
 
 def free_energy_contribution_one_interaction(i, j, h, J,  mia):
-    return -np.log(np.cosh(J[i,j])) - np.log(1+np.tanh(J[i,j]*np.prod(mia[:,j]))) #-ln Z_a
+    return -np.log(np.cosh(J[i,j])) - np.log(1+np.tanh(J[i,j]*mia[i,j]*mia[j,i]))
+    #return -np.log(np.cosh(J[i,j])) - np.log(1+np.tanh(J[i,j]*np.prod(mia[:,j]))) #-ln Z_a
 
 
 
@@ -1590,7 +1590,8 @@ def energy_of_neural_population(h, J, mia, mbi_tilde):
     return E
 
 def H(i,y,h,J,mbi_tilde):
-    return np.exp(y*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+y*mbi_tilde[:,i]))))
+    return np.exp(y*h[i])*np.prod(np.cosh(np.multiply(J[i,:],(1+y*mbi_tilde[i,:]))))
+#    return np.exp(y*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+y*mbi_tilde[:,i]))))
 
 def G(i,y,h,J,mia,mbi_tilde):
     Gi = 0
