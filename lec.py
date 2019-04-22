@@ -1418,6 +1418,9 @@ def bethe(m, C, J_init, eta, max_steps, damp_fact):
     """SUSPROP Huang 2012
     m:  measured magnetization m_i = <sigma_i>_data
     C: connected correlation <sigma_i sigma_j>_data - m_im_j
+    eta: precision
+    max_steps: 
+    damp_fact: damping factor
     """
     N = m.shape[0]
     J = J_init
@@ -1471,7 +1474,7 @@ def belief_propagation(m, C, h, J, max_steps, eta):
     C: connected correlation <sigma_i sigma_j>_data - m_im_j
     """
     N = m.shape[0]
-    J = J_init
+#    J = J_init
     
     #the message m_{i→j} is randomly initialized in the interval [−1.0,1.0]
     mij_mat = np.random.uniform(-1.,1., [N,N])
@@ -1486,14 +1489,14 @@ def belief_propagation(m, C, h, J, max_steps, eta):
         
         for i in range(N):
             for j in range(N):
-                mnj = mij_mat[i,:][~(np.arange(len(mij_mat)) == j)]
+                mnj = mij_tilde[:,i][~(np.arange(len(mij_tilde)) == j)]
                 mij = (exp(h[i]) * np.prod(1+mnj) - exp(-h[i])* np.prod(1-mnj))/(exp(h[i]) * np.prod(1+mnj) + exp(-h[i])* np.prod(1-mnj))
-                mij_mat[i,j] = mij       
+                mij_mat[i,j] = mij     
                 
-                
+        
         for i in range(N):
             for j in range(N):
-                mij_tilde[i,j] = np.tanh(J[i,j]*mij_mat[i,j])
+                mij_tilde[j,i] = np.tanh(J[j,i]*mij_mat[j,i])
         
         for i in range(N):
             for j in range(N):
@@ -1513,23 +1516,79 @@ def belief_propagation(m, C, h, J, max_steps, eta):
             C_tilde[i,j] = C[i,j] - (1-np.square(m[i])) * gijk[i,j,j]/(gijk[j,i,j]) + m[i]*m[j]
                 
         
-    return C_tilde
+    return C_tilde, mij_mat, mij_tilde
 
 
-def entropy_BP():
+def entropy_bethe(h, J, max_steps):
+    s = 0
+    N = h.shape[0]
+    mij_mat, mij_tilde = calc_mij_mats(h, J, max_steps)
+    for i in range(N):
+        s += site_contribution(i, h, J, mij_mat, mij_tilde)
+        for j in range(N):
+            s -= edge_contribution(i, j, h, J, mij_mat, mij_tilde)
+    return s
     
-    return entropy
+def calc_mij_mats(h, J, max_steps):
+    N = h.shape[0]
+    mij_mat = np.random.uniform(-1.,1., [N,N])
+    mij_tilde = zeros([N,N])
+    N = h.shape[0]
+    for t in range(max_steps):
+        
+        for i in range(N):
+            for j in range(N):
+                #mij[i,i]??
+                if i == j:
+                    mij_mat[i,j] = 0
+                else:
+                    mnj = mij_tilde[:,i][~(np.arange(len(mij_tilde)) == j)]
+                    mij = (exp(h[i]) * np.prod(1+mnj) - exp(-h[i])* np.prod(1-mnj))/(exp(h[i]) * np.prod(1+mnj) + exp(-h[i])* np.prod(1-mnj))
+                    mij_mat[i,j] = mij 
+#                mij_mat[i,j] = (exp(h[i])*np.prod(1+mij_tilde[:,i][~(np.arange(N) == j)]) - exp(h[i])*np.prod(1-mij_tilde[:,i][~(np.arange(N) == j)]))/(exp(h[i])*np.prod(1+mij_tilde[:,i][~(np.arange(N) == j)]) + exp(h[i])*np.prod(1-mij_tilde[:,i][~(np.arange(N) == j)]))
+        np.fill_diagonal(mij_mat, 0)        
+        
+        for i in range(N):
+            for j in range(N):
+                mij_tilde[j,i] = np.tanh(J[j,i]*mij_mat[j,i])
+        np.fill_diagonal(mij_tilde, 0)
+    return mij_mat, mij_tilde
+    
+
+def site_contribution(i, h, J, mij_mat, mij_tilde):
+    zi = z_i(i, h, J, mij_mat, mij_tilde)
+    s_contr = np.log(zi)
+    s_contr -= 1/zi * ( X_i(i, 1., h, J, mij_mat, mij_tilde) -  X_i(i, -1., h, J, mij_mat, mij_tilde))
+    s_contr -= 1/zi * (Y_i(i, 1., h, J, mij_mat, mij_tilde) + Y_i(i, -1., h, J, mij_mat, mij_tilde))
+    return s_contr
+    
+def X_i(i, y, h, J, mij_mat, mij_tilde):
+    return h[i]*exp(y*h[i])*np.prod(np.cosh(np.multiply(J[:,i],1+y*np.tanh(np.multiply(J[:,i], mij_mat[:,i])))))
+
+def Y_i(i, y, h, J, mij_mat, mij_tilde):
+    N = h.shape[0]
+    yi = 0
+    for l in range(N):
+        fy = J[l,i]*sinh(J[l,i]*(1+y*tanh(J[l,i]*mij_mat[l,i])))
+        fy += y*J[l,i]*cosh(J[l,i]*(1-tanh(J[l,i])**2)*mij_mat[l,i])
+        fy *= np.prod(np.cosh(np.multiply(J[i,:][~(np.arange(len(mij_mat)) == l)],1+y*np.tanh(np.multiply(J[i,:][~(np.arange(len(mij_mat)) == l)], mij_mat[:,i][~(np.arange(len(mij_mat)) == l)])))))
+        yi += fy
+    yi *= exp(-y*h[i])
+    return yi
+
+def z_i(i, h, J, mij_mat, mij_tilde):
+    return exp(h[i])*np.prod(np.cosh(np.multiply(J[:,i], 1+mij_tilde[:,i]))) + exp(-h[i])*np.prod(np.cosh(np.multiply(J[:,i], 1-mij_tilde[:,i])))
 
 
-
-
+def edge_contribution(i, j, h, J, mij_mat, mij_tilde):
+    zij = np.log(cosh(J[i,j]*(1+tanh(J[i,j]*mij_mat[i,j]*mij_mat[j,i]))))
+    zij -= J[i,j]*(tanh(J[i,j]+mij_mat[i,j]*mij_mat[j,i]))/(1+tanh(J[i,j]*mij_mat[i,j]*mij_mat[j,i]))
+    return zij
 
 ###Huang 2016 Clustering...
 
 def message_passing(h, J, max_steps):
-    N = J.shape[0]
-    mia = zeros([N,N])
-    mbi_tilde = zeros([N,N])
+    N = h.shape[0]
 #    if x != 0.:
 #        #with x \sigma^* \sigma
 #        h_var = beta*h + x*ref_sigma
@@ -1540,9 +1599,32 @@ def message_passing(h, J, max_steps):
 #        J_var = beta*J
 #    else:
 #        J_var = J
+#    #the message m_{i→j} is randomly initialized in the interval [−1.0,1.0]
+#    mij_mat = np.random.uniform(-1.,1., [N,N])
+    mia = zeros([N,N])
+    mbi_tilde = zeros([N,N])
+    
     for step in range(max_steps):
         for i in range(N):
             for j in range(N):
+                mia[i,j] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:][~(np.arange(N) == j)]))) 
+        for i in range(N):
+            for j in range(N):
+                mbi_tilde[j,i] = np.tanh(J[j,i] * mia[j,i])
+    
+    return mia, mbi_tilde
+
+
+def message_passing_with(mia, mbi_tilde, h, J, max_steps):
+    N = J.shape[0]
+    if mia == []:
+        mia = zeros([N,N])
+    if mbi_tilde == []:
+        mbi_tilde = zeros([N,N])
+    for step in range(max_steps):
+        for i in range(N):
+            for j in range(N):
+            
                 mia[i,j] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:][~(np.arange(N) == j)]))) 
         for i in range(N):
             for j in range(N):
@@ -1671,17 +1753,19 @@ def multi_neuron_correlation(J, mia):
     return corrs
 
 
-def learning_eqs(mag_sim, corrs_sim, h, J, learning_rate, max_steps):
+def learning_eqs(mag_sim, corrs_sim, h, J, learning_rate, max_steps, max_steps_mp):
     min_av_max = []
+    h_mp=h
+    J_mp=J
     for step in range(max_steps):
-        mia, mbi_tilde = message_passing(h, J, 20)
-        h += learning_rate * (mag_sim - model_spiking_rate(h, mbi_tilde))
-        J += learning_rate * (corrs_sim - multi_neuron_correlation(J, mia))
-        min_av_max.append(np.array([np.min(h), np.average(h), 
-                                     np.max(h),
-                                     np.min(J), np.average(J), 
-                                     np.max(J)]))
-    return h, J, np.array(min_av_max)
+        mia, mbi_tilde = message_passing(h_mp, J_mp, max_steps_mp)
+        h_mp += learning_rate * (mag_sim - model_spiking_rate(h_mp, mbi_tilde))
+        J_mp += learning_rate * (corrs_sim - multi_neuron_correlation(J_mp, mia))
+        min_av_max.append(np.array([np.min(h_mp), np.average(h_mp), 
+                                     np.max(h_mp),
+                                     np.min(J_mp), np.average(J_mp), 
+                                     np.max(J_mp)]))
+    return h_mp, J_mp, np.array(min_av_max)
  
     
 
@@ -1785,8 +1869,6 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
     q_til = d_to_q(d)
     J_var = beta*J
     N=h.shape[0]
-    #calc s(d)
-    
     #secant method
     xk_1 = x0
     xk = x1
@@ -1806,7 +1888,7 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
         xk_1 = xk
         xk = xk + pk
         
-        print("F(x_k):", F_curr, "X_k:", xk)
+#        print("F(x_k):", F_curr, "X_k:", xk)
         if abs(F_curr - F_prev) < epsilon:
             h_var = beta*h + xk*ref_sigma
             mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
@@ -1815,7 +1897,8 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
         F_prev = F_curr
     if k==max_steps_k-1:
         print("Did not converge in %d steps" %max_steps_k)
-    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) - xk*q_til
+#    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) - xk*q_til
+    s = entropy_bethe(h_var, J_var, 1)/N - xk*q_til
     return xk, s
 
 
@@ -1835,8 +1918,6 @@ def calc_q_h(h, ref_sigma, x):
 def secant_h(d, x0, x1, epsilon, max_steps_k, h, beta, ref_sigma):
     q_til = d_to_q(d)
     N=h.shape[0]
-    #calc s(d)
-    
     #secant method
     xk_1 = x0
     xk = x1
@@ -1850,7 +1931,7 @@ def secant_h(d, x0, x1, epsilon, max_steps_k, h, beta, ref_sigma):
         xk_1 = xk
         xk = xk + pk
         
-        print("F(x_k):", F_curr, "X_k:", xk)
+#        print("F(x_k):", F_curr, "X_k:", xk)
         if abs(F_curr - F_prev) < epsilon:
             break
         
