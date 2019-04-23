@@ -444,10 +444,12 @@ def mc_step_3(N, h, J, current_state, T):
     
     #calculate energy of new state    
     r = np.random.rand()
-    trans_prob = np.exp(-2*current_state[ijk]*(h[ijk] + np.sum(np.dot(J[:,ijk], current_state)))/T)
+    e_delta = 2*current_state[ijk]*(h[ijk] + np.sum(np.dot(J[:,ijk], current_state)))
+    trans_prob = np.exp(-e_delta/T)
+    
     if r < trans_prob:
         current_state = new_state
-    return current_state
+    return np.array(current_state), e_delta
 
 def metropolis_mc(h, J, Nsamples,
                   sample_after, sample_per_steps, T):
@@ -502,6 +504,8 @@ def gdd(coeffs=[0,0], initial_state=1, ordered_or_random='ordered', inverse=Fals
     Nneur = initial_state.shape[0]
     current_state = zeros(Nneur)
     current_state[:] = initial_state[:]
+    tracked_states = [current_state]
+    n_flips = 0
     while True:
         e_old = calc_energy([h1, h2], coeffs, current_state)
         
@@ -527,16 +531,18 @@ def gdd(coeffs=[0,0], initial_state=1, ordered_or_random='ordered', inverse=Fals
             if e_delta < 0:
                 e_old = e_new
                 current_state = new_state
-                
+                tracked_states.append(tracked_states)
+                n_flips += 1
             else:
                 stop_ind += 1
                 current_state[ind] = -current_state[ind]
                 
             #stop if could not flip any spin during step
             if stop_ind == Nneur:
-                return current_state
+                return np.array(current_state), tracked_states, n_flips
+#                return current_state
                 
-    return current_state
+#    return current_state
 
 
 def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
@@ -596,17 +602,74 @@ def lem_init_final(h, J, number_of_initial_patterns):
 
 def lem_from_data(h, J, s_act, ordered_or_random):
     """Determines LEM with GDD for all states from data"""
-    N = h.shape[0]
     init_final_dict = {}
     patterns = []
     for pattern in s_act.T:
-        final_state = gdd([h, J], pattern, ordered_or_random)
+        final_state, _, _ = gdd([h, J], pattern, ordered_or_random)
         patterns.append(final_state)
         try:
             init_final_dict[final_state.tobytes()].append(pattern)
         except KeyError:
             init_final_dict[final_state.tobytes()] = [pattern]
-    return patterns, init_final_dict
+    return np.array(patterns), init_final_dict
+
+
+###distance by changing states one-for-one and then using gdd to determine if they
+#belonh to another basin now
+def distance_histogram(h, J, init_pattern, number_of_runs, time_steps, T):
+    
+    return
+
+def mc_with_ggd(h, J, init_pattern, ordered_patterns, time_steps, T):
+    "Exploring the energy landscape Tkacik 2014"
+    N = h.shape[0]
+    mc_states = [init_pattern]
+    lems = [init_pattern]
+    e_list = []
+    n_list = []
+    transition_time_list = []
+#    d_dict = {init_pattern: [0]}
+#    dd_dict = {(init_pattern, init_pattern):[0]}
+    matrix_attempted_flips = [[[] for i in range(N)] for j in range(N)]
+    time_spent_in_previous_basin = 0
+    n_failed_attempts = 0
+    current_state = init_pattern
+    pi = np.where(np.dot(ordered_patterns, init_pattern) ==N)[0][0]
+    t_at_previous_basin_crossing = -1
+    for t in range(time_steps):
+        current_state, e_delta = mc_step_3(N, h, J, current_state, T)
+        #ordered spin flips in Tkacik, but is that good?
+        if np.any(current_state != mc_states[-1]):
+            mc_states.append(current_state)
+            e_list.append(e_delta)
+            lem, path, n_flips = gdd([h,J], current_state, ordered_or_random='ordered')
+            pj = np.where(np.dot(ordered_patterns, lem) ==N)[0][0]
+            n_list.append(n_flips)    
+            
+            if np.any(lem != lems[-1]):
+                transition_time_list.append(t-n_failed_attempts)
+                dist_to_barrier = n_list[-1]
+                time_spent_in_previous_basin = 0
+                
+                print(pi, pj, t, t_at_previous_basin_crossing, n_failed_attempts)
+                matrix_attempted_flips[pi][pj] = t - t_at_previous_basin_crossing
+#                try:
+##                    d_dict[tuple(lem)].append(dist_to_init+n_flips)
+#                    dd_dict[(tuple(lem), tuple(lems[-1]))].append(dist_to_barrier+time_spent_in_previous_basin+n_flips)
+#                except:
+##                    d_dict[tuple(lem)] = [dist_to_init+n_flips]
+#                    dd_dict[(tuple(lem), tuple(lems[-1]))] = [dist_to_barrier+time_spent_in_previous_basin+n_flips]
+                lems.append(lem)
+                pi = pj
+                t_at_previous_basin_crossing = t
+            else:
+                time_spent_in_previous_basin += 1
+#            dist_to_barrier = min(dist_to_barrier, n_flips)
+        else:
+            n_failed_attempts += 1
+            
+    return np.array(mc_states), np.array(lems), e_list, matrix_attempted_flips, transition_time_list
+    
 
 def hamming_distance(sigma_1, sigma_2):
     #Calculates the Hamming distance between two neural patterns
@@ -1600,8 +1663,8 @@ def message_passing(h, J, max_steps):
 #    else:
 #        J_var = J
 #    #the message m_{i→j} is randomly initialized in the interval [−1.0,1.0]
-#    mij_mat = np.random.uniform(-1.,1., [N,N])
-    mia = zeros([N,N])
+    mia = np.random.uniform(-1.,1., [N,N])
+#    mia = zeros([N,N])
     mbi_tilde = zeros([N,N])
     
     for step in range(max_steps):
@@ -1897,8 +1960,8 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
         F_prev = F_curr
     if k==max_steps_k-1:
         print("Did not converge in %d steps" %max_steps_k)
-#    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) - xk*q_til
-    s = entropy_bethe(h_var, J_var, 1)/N - xk*q_til
+    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) - xk*q_til
+#    s = entropy_bethe(h_var, J_var, 1)/N - xk*q_til
     return xk, s
 
 
@@ -1949,3 +2012,6 @@ def make_hopfield_weights(pattern_list):
     for pattern in pattern_list:
         weights += np.outer(pattern, pattern)   
     return weights/N
+
+
+
