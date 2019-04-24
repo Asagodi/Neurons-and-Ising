@@ -497,17 +497,17 @@ def mc_with_start_pattern(h, J, Nsamples, initial_state, sample_after, sample_pe
 
 ##############LEM + MDS
 #greedy descent dynamics
-def gdd(coeffs=[0,0], initial_state=1, ordered_or_random='ordered', inverse=False):
+def gdd(h, J, initial_state=1, ordered_or_random='ordered', inverse=False):
     """for each neuron, we flip its activity if the flip will decrease the
     energy. If we could not decrease the energy by flipping any
     neuron’s activity, then a local energy minimum is identified"""
     Nneur = initial_state.shape[0]
     current_state = zeros(Nneur)
     current_state[:] = initial_state[:]
-    tracked_states = [current_state]
+    tracked_states = [np.array(initial_state, copy=True)]
     n_flips = 0
     while True:
-        e_old = calc_energy([h1, h2], coeffs, current_state)
+#        e_old = calc_energy([h1, h2], coeffs, current_state)
         
 #       attempt to flip spins i~1,N from their current state into {s i , in order of increasing i.
         indices = np.arange(Nneur)
@@ -518,24 +518,23 @@ def gdd(coeffs=[0,0], initial_state=1, ordered_or_random='ordered', inverse=Fals
 #        indices = np.random.permutation(Nneur)
         stop_ind = 0
         for ind in indices:
-
-            new_state = current_state
-            new_state[ind] = -current_state[ind]
-            e_new = calc_energy([h1, h2], coeffs, new_state)
-            e_delta = e_new - e_old
+#            current_state[ind] = -current_state[ind]
+#            e_new = calc_energy([h1, h2], coeffs, current_state)
+#            e_delta = e_new - e_old
+            e_delta = 2*current_state[ind]*(h[ind] + np.sum(np.dot(J[:,ind], current_state)))
             
             #uphill walk if True
             if inverse==True:
                 e_delta = -e_delta
                 
             if e_delta < 0:
-                e_old = e_new
-                current_state = new_state
-                tracked_states.append(tracked_states)
+#                e_old = e_new
+                current_state[ind] = -current_state[ind]
+                tracked_states.append(np.array(current_state, copy=True))
                 n_flips += 1
             else:
                 stop_ind += 1
-                current_state[ind] = -current_state[ind]
+#                current_state[ind] = -current_state[ind]
                 
             #stop if could not flip any spin during step
             if stop_ind == Nneur:
@@ -620,7 +619,7 @@ def distance_histogram(h, J, init_pattern, number_of_runs, time_steps, T):
     
     return
 
-def mc_with_ggd(h, J, init_pattern, ordered_patterns, time_steps, T):
+def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps, T, matrix_attempted_flips=[], matrix_both_flips = [], matrix_energy_barriers = []):
     "Exploring the energy landscape Tkacik 2014"
     N = h.shape[0]
     mc_states = [init_pattern]
@@ -628,13 +627,20 @@ def mc_with_ggd(h, J, init_pattern, ordered_patterns, time_steps, T):
     e_list = []
     n_list = []
     transition_time_list = []
+    path_list = []
 #    d_dict = {init_pattern: [0]}
 #    dd_dict = {(init_pattern, init_pattern):[0]}
-    matrix_attempted_flips = [[[] for i in range(N)] for j in range(N)]
+    if matrix_attempted_flips == []:
+        matrix_attempted_flips = [[[] for i in range(N)] for j in range(N)]
+    if matrix_both_flips == []:
+        matrix_both_flips = [[[] for i in range(N)] for j in range(N)]
+    if matrix_energy_barriers == []:
+        matrix_energy_barriers = [[[] for i in range(N)] for j in range(N)]
+        
     time_spent_in_previous_basin = 0
     n_failed_attempts = 0
     current_state = init_pattern
-    pi = np.where(np.dot(ordered_patterns, init_pattern) ==N)[0][0]
+    pi = np.where(np.dot(lem_patterns, init_pattern) ==N)[0][0]
     t_at_previous_basin_crossing = -1
     for t in range(time_steps):
         current_state, e_delta = mc_step_3(N, h, J, current_state, T)
@@ -642,17 +648,37 @@ def mc_with_ggd(h, J, init_pattern, ordered_patterns, time_steps, T):
         if np.any(current_state != mc_states[-1]):
             mc_states.append(current_state)
             e_list.append(e_delta)
-            lem, path, n_flips = gdd([h,J], current_state, ordered_or_random='ordered')
-            pj = np.where(np.dot(ordered_patterns, lem) ==N)[0][0]
+            lem, path, n_flips = gdd(h,J, current_state, ordered_or_random='ordered')
+            try:
+                pj = np.where(np.dot(lem_patterns, lem) ==N)[0][0]
+            except:#if lem was not in ordered_patterns
+                #update lem patterns   
+                lem_patterns = np.append(lem_patterns, np.reshape(lem, (1,N)), axis=0)
+                
+                #update size matrices
+                matrix_attempted_flips.append([[] for i in range(N)])
+                for j in range(N+1):
+                    matrix_attempted_flips[j].append([])
+                matrix_both_flips.append([[] for i in range(N)])
+                for j in range(N+1):
+                    matrix_both_flips[j].append([])
+                matrix_energy_barriers.append([[] for i in range(N)])  
+                for j in range(N+1):
+                    matrix_energy_barriers[j].append([])    
+                
+                pj = np.where(np.dot(lem_patterns, lem) ==N)[0][0]
             n_list.append(n_flips)    
             
             if np.any(lem != lems[-1]):
                 transition_time_list.append(t-n_failed_attempts)
-                dist_to_barrier = n_list[-1]
+#                dist_to_barrier = n_list[-1]
                 time_spent_in_previous_basin = 0
                 
-                print(pi, pj, t, t_at_previous_basin_crossing, n_failed_attempts)
-                matrix_attempted_flips[pi][pj] = t - t_at_previous_basin_crossing
+#                print(pi, pj, t, t_at_previous_basin_crossing, n_failed_attempts)
+                matrix_attempted_flips[pi][pj].append(t - t_at_previous_basin_crossing)
+                matrix_both_flips[pi][pj].append(t - t_at_previous_basin_crossing + n_list[-1])
+                matrix_energy_barriers[pi][pj].append(np.max(e_list[time_spent_in_previous_basin:]))
+                path_list.append(path)
 #                try:
 ##                    d_dict[tuple(lem)].append(dist_to_init+n_flips)
 #                    dd_dict[(tuple(lem), tuple(lems[-1]))].append(dist_to_barrier+time_spent_in_previous_basin+n_flips)
@@ -668,7 +694,7 @@ def mc_with_ggd(h, J, init_pattern, ordered_patterns, time_steps, T):
         else:
             n_failed_attempts += 1
             
-    return np.array(mc_states), np.array(lems), e_list, matrix_attempted_flips, transition_time_list
+    return np.array(mc_states), np.array(lems), e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, lem_patterns
     
 
 def hamming_distance(sigma_1, sigma_2):
@@ -1428,7 +1454,7 @@ def plot_ordered_patterns(patterns_gdd, h, J):
 #    ax.set_yticklabels(['']+ordered_energies)
 #    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
     plt.show()         
-    return ordered_patterns
+    return np.array(ordered_patterns)
 
 
 def get_indices_where_different(pattern1, pattern2):
@@ -1665,7 +1691,8 @@ def message_passing(h, J, max_steps):
 #    #the message m_{i→j} is randomly initialized in the interval [−1.0,1.0]
     mia = np.random.uniform(-1.,1., [N,N])
 #    mia = zeros([N,N])
-    mbi_tilde = zeros([N,N])
+#    mbi_tilde = zeros([N,N])
+    mbi_tilde = np.random.uniform(-1.,1., [N,N])
     
     for step in range(max_steps):
         for i in range(N):
@@ -1928,7 +1955,7 @@ def secant2(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
     return xk, s
 
 
-def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_steps_sq, max_steps_mp):
+def secant3(d, x0, x1, epsilon, max_steps_k, h, J, beta, ref_sigma, max_steps_sq, max_steps_mp):
     q_til = d_to_q(d)
     J_var = beta*J
     N=h.shape[0]
@@ -1951,8 +1978,8 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
         xk_1 = xk
         xk = xk + pk
         
-#        print("F(x_k):", F_curr, "X_k:", xk)
-        if abs(F_curr - F_prev) < epsilon:
+        print("F(x_k):", F_curr, "X_k:", xk)
+        if abs(F_curr - 0.) < epsilon:
             h_var = beta*h + xk*ref_sigma
             mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
             break
@@ -1960,8 +1987,14 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
         F_prev = F_curr
     if k==max_steps_k-1:
         print("Did not converge in %d steps" %max_steps_k)
-    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) - xk*q_til
-#    s = entropy_bethe(h_var, J_var, 1)/N - xk*q_til
+#    f = free_energy(h_var, J_var, mia, mbi_tilde)/N
+#    f_h = free_energy(h, J, mia, mbi_tilde)/N
+#    e = energy_of_neural_population(h, J, mia, mbi_tilde)/N
+#    s = -f + e - xk*q_til
+    s = 0
+#    print(d, q_til, xk, -f, -f_h, e, -f + e, -f + e -xk*q_til, -f_h + e -xk*q_til)
+#    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) #- xk*q_til
+#    s = entropy_bethe(h_var, J_var, 1)/N #- xk*q_til
     return xk, s
 
 
@@ -2012,6 +2045,4 @@ def make_hopfield_weights(pattern_list):
     for pattern in pattern_list:
         weights += np.outer(pattern, pattern)   
     return weights/N
-
-
 
