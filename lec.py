@@ -1348,7 +1348,7 @@ def make_expected_patterns(N, n_bumps, length_bump):
     ##look for expected pattern energies and check for local energy minimum
     num_patts = int(N/n_bumps)
     exp_patterns = -ones([N,num_patts]) # second value half if two bumps
-    shift = int((100-length_bump*n_bumps)/n_bumps) #int((N - 2*lenght)/4)
+    shift = int((N-length_bump*n_bumps)/n_bumps) #int((N - 2*lenght)/4)
     for i in range(num_patts): #half if two bumps
         for n in range(length_bump):
             for b_i in range(n_bumps):
