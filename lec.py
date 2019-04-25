@@ -581,7 +581,8 @@ def lem(h, J, number_of_initial_patterns, init_part_active, ordered_or_random):
         initial_state = np.random.rand(N)
         initial_state[initial_state>thr] = 1 
         initial_state[initial_state<=thr] = -1
-        patterns.append(gdd(h, J, initial_state, ordered_or_random=ordered_or_random))
+        patt, _, _ = gdd(h, J, initial_state, ordered_or_random=ordered_or_random)
+        patterns.append(patt)
     return patterns
 
 def lem_init_final(h, J, number_of_initial_patterns):
@@ -2087,6 +2088,5 @@ def make_hopfield_weights(pattern_list):
     for pattern in pattern_list:
         weights += np.outer(pattern, pattern)   
     return weights/N
-
 
 
