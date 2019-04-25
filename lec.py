@@ -591,7 +591,7 @@ def lem_init_final(h, J, number_of_initial_patterns):
     init_final_dict = {}
     for i_p in range(number_of_initial_patterns):
         initial_state = np.random.choice([-1,1], N)
-        final_state = gdd(h, J, initial_state)
+        final_state, _, _ = gdd(h, J, initial_state)
         try:
             init_final_dict[final_state.tobytes()].append(initial_state)
         except KeyError:
@@ -637,6 +637,7 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
     reach this LEM as their minimum through gdd)
     """
     N = h.shape[0]
+    num_patt = lem_patterns.shape[0]
     mc_states = [init_pattern]
     lems = [init_pattern]
     e_list = []
@@ -647,17 +648,17 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
 #    d_dict = {init_pattern: [0]}
 #    dd_dict = {(init_pattern, init_pattern):[0]}
     if matrix_attempted_flips == []:
-        matrix_attempted_flips = [[[] for i in range(N)] for j in range(N)]
+        matrix_attempted_flips = [[[] for i in range(num_patt)] for j in range(num_patt)]
     if matrix_both_flips == []:
-        matrix_both_flips = [[[] for i in range(N)] for j in range(N)]
+        matrix_both_flips = [[[] for i in range(num_patt)] for j in range(num_patt)]
     if matrix_energy_barriers == []:
-        matrix_energy_barriers = [[[] for i in range(N)] for j in range(N)]
-    if matrix_energy_barriers == []:
-        basin_size_list = [1 for i in range(N)]
+        matrix_energy_barriers = [[[] for i in range(num_patt)] for j in range(num_patt)]
+    if basin_size_list == []:
+        basin_size_list = [1 for i in range(num_patt)]
     time_spent_in_previous_basin = 0
     n_failed_attempts = 0
     current_state = init_pattern
-    pi = np.where(np.dot(lem_patterns, init_pattern) ==N)[0][0]
+    pi = np.where(np.dot(lem_patterns, init_pattern) == N)[0][0]
     t_at_previous_basin_crossing = -1
     for t in range(time_steps):
         current_state, e_delta = mc_step_3(N, h, J, current_state, T)
@@ -673,18 +674,18 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 lem_patterns = np.append(lem_patterns, np.reshape(lem, (1,N)), axis=0)
                 
                 #update size matrices
-                matrix_attempted_flips.append([[] for i in range(N)])
-                for j in range(N+1):
+                matrix_attempted_flips.append([[] for i in range(num_patt)])
+                for j in range(num_patt+1):
                     matrix_attempted_flips[j].append([])
-                matrix_both_flips.append([[] for i in range(N)])
-                for j in range(N+1):
+                matrix_both_flips.append([[] for i in range(num_patt)])
+                for j in range(num_patt+1):
                     matrix_both_flips[j].append([])
-                matrix_energy_barriers.append([[] for i in range(N)])  
-                for j in range(N+1):
-                    matrix_energy_barriers[j].append([])    
-                
-                pj = np.where(np.dot(lem_patterns, lem) ==N)[0][0]
+                matrix_energy_barriers.append([[] for i in range(num_patt)])  
+                for j in range(num_patt+1):
+                    matrix_energy_barriers[j].append([])   
                 basin_size_list.append(1)
+                
+                pj = np.where(np.dot(lem_patterns, lem) == N)[0][0]
             basin_size_list[pj] += 1
             n_list.append(n_flips)    
             
@@ -2087,6 +2088,6 @@ def make_hopfield_weights(pattern_list):
     weights = zeros([N, N])
     for pattern in pattern_list:
         weights += np.outer(pattern, pattern)   
-    return weights/N
+    return weights/float(N)
 
 
