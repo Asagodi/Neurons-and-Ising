@@ -438,17 +438,15 @@ def mc_step_2(N, h, J, current_state, e_old, T):
 def mc_step_3(N, h, J, current_state, T):
     """Same as mc_step but with Nflips=1"""
     ijk = np.random.randint(0,N)
-    new_state = zeros(N)
-    new_state[:] = current_state[:]
-    new_state[ijk] =   - current_state[ijk]
     
     #calculate energy of new state    
-    r = np.random.rand()
     e_delta = 2*current_state[ijk]*(h[ijk] + np.sum(np.dot(J[:,ijk], current_state)))
     trans_prob = np.exp(-e_delta/T)
     
+    r = np.random.rand()
     if r < trans_prob:
-        current_state = new_state
+        current_state[ijk] = - current_state[ijk]
+#    print(np.array(current_state), e_delta)
     return np.array(current_state), e_delta
 
 def metropolis_mc(h, J, Nsamples,
@@ -469,10 +467,10 @@ def metropolis_mc(h, J, Nsamples,
 #    e_old = -np.sum(.5*np.multiply(J, np.outer(current_state, current_state)))- np.dot(h, current_state)
     for step in range(0, sample_after, 1):
         #mc_step_2 faster if Nflips=1
-        current_state = mc_step_3(N, h, J, current_state, T)
+        current_state, _ = mc_step_3(N, h, J, current_state, T)
     
     for step in range(0, Nsteps, 1):
-        current_state = mc_step_3(N, h, J, current_state, T)
+        current_state, _ = mc_step_3(N, h, J, current_state, T)
         
         if step % sample_per_steps == 0:
             mc_samples[:, int(step / sample_per_steps)] = current_state
@@ -583,7 +581,7 @@ def lem(h, J, number_of_initial_patterns, init_part_active, ordered_or_random):
         initial_state = np.random.rand(N)
         initial_state[initial_state>thr] = 1 
         initial_state[initial_state<=thr] = -1
-        patterns.append(gdd([h, J], initial_state, ordered_or_random=ordered_or_random))
+        patterns.append(gdd(h, J, initial_state, ordered_or_random=ordered_or_random))
     return patterns
 
 def lem_init_final(h, J, number_of_initial_patterns):
@@ -592,7 +590,7 @@ def lem_init_final(h, J, number_of_initial_patterns):
     init_final_dict = {}
     for i_p in range(number_of_initial_patterns):
         initial_state = np.random.choice([-1,1], N)
-        final_state = gdd([h, J], initial_state)
+        final_state = gdd(h, J, initial_state)
         try:
             init_final_dict[final_state.tobytes()].append(initial_state)
         except KeyError:
@@ -604,7 +602,7 @@ def lem_from_data(h, J, s_act, ordered_or_random):
     init_final_dict = {}
     patterns = []
     for pattern in s_act.T:
-        final_state, _, _ = gdd([h, J], pattern, ordered_or_random)
+        final_state, _, _ = gdd(h, J, pattern, ordered_or_random)
         patterns.append(final_state)
         try:
             init_final_dict[final_state.tobytes()].append(pattern)
@@ -619,8 +617,24 @@ def distance_histogram(h, J, init_pattern, number_of_runs, time_steps, T):
     
     return
 
-def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps, T, matrix_attempted_flips=[], matrix_both_flips = [], matrix_energy_barriers = []):
+def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
+                T, matrix_attempted_flips=[], matrix_both_flips = [],
+                matrix_energy_barriers = [], basin_size_list = []):
     "Exploring the energy landscape Tkacik 2014"
+    """
+    init_pattern: pattern to start the MC with
+    lem_patterns: identified LEMs 
+    time_steps: number of MC steps (including attempted ones)
+    T: temperature
+    matrix_attempted_flips: for each pair of LEMS a list of the attempted 
+    spin flips to get from one LEM to the other
+    matrix_both_flips: matrix_attempted_flips + the spin flips needed 
+    to reach the barrier (which we get from gdd)
+    matrix_energy_barriers: list of the maximal energy encoundered 
+    along the path between LEMs
+    basin_size_list: size of the basins of the LEMs (number of patterns that
+    reach this LEM as their minimum through gdd)
+    """
     N = h.shape[0]
     mc_states = [init_pattern]
     lems = [init_pattern]
@@ -628,6 +642,7 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps, T, matrix_attempte
     n_list = []
     transition_time_list = []
     path_list = []
+    
 #    d_dict = {init_pattern: [0]}
 #    dd_dict = {(init_pattern, init_pattern):[0]}
     if matrix_attempted_flips == []:
@@ -636,7 +651,8 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps, T, matrix_attempte
         matrix_both_flips = [[[] for i in range(N)] for j in range(N)]
     if matrix_energy_barriers == []:
         matrix_energy_barriers = [[[] for i in range(N)] for j in range(N)]
-        
+    if matrix_energy_barriers == []:
+        basin_size_list = [1 for i in range(N)]
     time_spent_in_previous_basin = 0
     n_failed_attempts = 0
     current_state = init_pattern
@@ -667,6 +683,8 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps, T, matrix_attempte
                     matrix_energy_barriers[j].append([])    
                 
                 pj = np.where(np.dot(lem_patterns, lem) ==N)[0][0]
+                basin_size_list.append(1)
+            basin_size_list[pj] += 1
             n_list.append(n_flips)    
             
             if np.any(lem != lems[-1]):
@@ -1356,7 +1374,31 @@ def make_expected_patterns(N, n_bumps, length_bump):
     return exp_patterns
     
 
-def plot_patterns_with_energies(h, J, exp_patterns, n_bumps):
+def plot_patterns_with_energies(h, J, patterns):
+    N = h.shape[0]
+    pattern_energies = []
+    for i,pattern in enumerate(patterns):
+        energy = calc_energy([h1,h2], [h,J], pattern)
+        pattern_energies.append(round(energy,2))
+        
+        
+    fig = plt.figure(figsize=(10,10))
+    ax = fig.add_subplot(111)
+    cax = ax.matshow(patterns)
+    ax.set_yticklabels(['']+pattern_energies)
+    ax.set_yticks([i for i in np.arange(-.5, len(pattern_energies), 1.)])
+    plt.show()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.plot(pattern_energies, 'x', label="Energies of the expected patterns")
+    ax.legend()
+    plt.show()
+    
+    return pattern_energies
+    
+    
+def plot_patternsfromexpected_with_energies(h, J, exp_patterns, n_bumps):
     N = exp_patterns.shape[0]
     num_patts = int(N/n_bumps)
     expected_pattern_energies = []
@@ -1365,7 +1407,7 @@ def plot_patterns_with_energies(h, J, exp_patterns, n_bumps):
     for i,pattern in enumerate(exp_patterns.T):
         energy = calc_energy([h1,h2], [h,J], pattern)
         expected_pattern_energies.append(round(energy,2))
-        lem_patt = gdd([h, J], pattern)
+        lem_patt = gdd(h, J, pattern)
         lems[:,i] = lem_patt
         lems_expected_patterns.append(calc_energy([h1,h2], [h,J], lem_patt))
         
@@ -2045,4 +2087,6 @@ def make_hopfield_weights(pattern_list):
     for pattern in pattern_list:
         weights += np.outer(pattern, pattern)   
     return weights/N
+
+
 
