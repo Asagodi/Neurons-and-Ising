@@ -505,7 +505,7 @@ def gdd(h, J, initial_state=1, ordered_or_random='ordered', inverse=False):
     tracked_states = [np.array(initial_state, copy=True)]
     n_flips = 0
     while True:
-#        e_old = calc_energy([h1, h2], coeffs, current_state)
+        e_old = calc_energy([h1, h2], [h,J], current_state)
         
 #       attempt to flip spins i~1,N from their current state into {s i , in order of increasing i.
         indices = np.arange(Nneur)
@@ -516,23 +516,22 @@ def gdd(h, J, initial_state=1, ordered_or_random='ordered', inverse=False):
 #        indices = np.random.permutation(Nneur)
         stop_ind = 0
         for ind in indices:
-#            current_state[ind] = -current_state[ind]
-#            e_new = calc_energy([h1, h2], coeffs, current_state)
-#            e_delta = e_new - e_old
-            e_delta = 2*current_state[ind]*(h[ind] + np.sum(np.dot(J[:,ind], current_state)))
-            
+            current_state[ind] = -current_state[ind]
+            e_new = calc_energy([h1, h2], [h,J], current_state)
+            e_delta = e_new - e_old
+#            e_delta = 2*current_state[ind]*(h[ind] + np.sum(np.dot(J[:,ind], current_state)))
             #uphill walk if True
             if inverse==True:
                 e_delta = -e_delta
                 
             if e_delta < 0:
-#                e_old = e_new
-                current_state[ind] = -current_state[ind]
+                e_old = e_new
+#                current_state[ind] = -current_state[ind]
                 tracked_states.append(np.array(current_state, copy=True))
                 n_flips += 1
             else:
                 stop_ind += 1
-#                current_state[ind] = -current_state[ind]
+                current_state[ind] = -current_state[ind]
                 
             #stop if could not flip any spin during step
             if stop_ind == Nneur:
@@ -638,6 +637,9 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
     """
     N = h.shape[0]
     num_patt = lem_patterns.shape[0]
+    
+#    print(num_patt)
+    
     mc_states = [init_pattern]
     lems = [init_pattern]
     e_list = []
@@ -649,6 +651,8 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
 #    dd_dict = {(init_pattern, init_pattern):[0]}
     if matrix_attempted_flips == []:
         matrix_attempted_flips = [[[] for i in range(num_patt)] for j in range(num_patt)]
+#    else:
+#        print(len(matrix_attempted_flips[0]), len(matrix_attempted_flips[0][0]))
     if matrix_both_flips == []:
         matrix_both_flips = [[[] for i in range(num_patt)] for j in range(num_patt)]
     if matrix_energy_barriers == []:
@@ -684,8 +688,10 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 for j in range(num_patt+1):
                     matrix_energy_barriers[j].append([])   
                 basin_size_list.append(1)
-                
+                num_patt += 1
                 pj = np.where(np.dot(lem_patterns, lem) == N)[0][0]
+            
+            
             basin_size_list[pj] += 1
             n_list.append(n_flips)    
             
@@ -693,7 +699,9 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 transition_time_list.append(t-n_failed_attempts)
 #                dist_to_barrier = n_list[-1]
                 time_spent_in_previous_basin = 0
-                
+#                print(pi, pj)
+#                print("M", len(matrix_attempted_flips))
+#                [print(i, len(matrix_attempted_flips[i])) for i in range(len(matrix_attempted_flips))]
 #                print(pi, pj, t, t_at_previous_basin_crossing, n_failed_attempts)
                 matrix_attempted_flips[pi][pj].append(t - t_at_previous_basin_crossing)
                 matrix_both_flips[pi][pj].append(t - t_at_previous_basin_crossing + n_list[-1])
@@ -713,9 +721,26 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
 #            dist_to_barrier = min(dist_to_barrier, n_flips)
         else:
             n_failed_attempts += 1
-            
-    return np.array(mc_states), np.array(lems), e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, lem_patterns
     
+#    
+#    print(lem_patterns.shape)
+    return np.array(mc_states), np.array(lems), np.array(lem_patterns), e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list
+    
+def get_transition_rates(h, J, lem_patterns, mc_time, T=1.):    
+    matrix_attempted_flips = []
+    matrix_both_flips = []
+    matrix_energy_barriers = []
+    basin_size_list = []
+    for lem in lem_patterns:
+        plot_single_pattern(lem)
+        mc_states, lems, lem_patterns, e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list = mc_with_gdd(h, J, lem, lem_patterns, mc_time,
+                                                                                                                                                                    T, matrix_attempted_flips, matrix_both_flips,
+                                                                                                                                                                    matrix_energy_barriers, basin_size_list)
+    return matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, path_list, basin_size_list
+    
+    
+
+
 
 def hamming_distance(sigma_1, sigma_2):
     #Calculates the Hamming distance between two neural patterns
@@ -2089,5 +2114,6 @@ def make_hopfield_weights(pattern_list):
     for pattern in pattern_list:
         weights += np.outer(pattern, pattern)   
     return weights/float(N)
+
 
 
