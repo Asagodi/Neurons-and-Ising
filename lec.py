@@ -1420,6 +1420,8 @@ def plot_patterns_with_energies(h, J, patterns):
     ax = fig.add_subplot(111)
     cax = ax.plot(pattern_energies, 'x', label="Energies of the expected patterns")
     ax.legend()
+    ax.set_ylabel("Energy")
+    ax.set_xlabel("Pattern")
     plt.show()
     
     return pattern_energies
@@ -1444,12 +1446,16 @@ def plot_patternsfromexpected_with_energies(h, J, exp_patterns, n_bumps):
     cax = ax.matshow(lems.T)
     ax.set_yticklabels(['']+expected_pattern_energies)
     ax.set_yticks([i for i in np.arange(-.5, len(expected_pattern_energies), 1.)])
+    ax.set_ylabel("Pattern")
+    ax.set_xlabel("Neuron")
     plt.show()
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
     cax = ax.plot(expected_pattern_energies, label="Energies of the expected patterns")
     cax = ax.plot(lems_expected_patterns, label="Energies of the LEMs of these patterns")
+    ax.set_ylabel("Energy")
+    ax.set_xlabel("Pattern")
     ax.legend()
     plt.show()
 
@@ -1522,6 +1528,8 @@ def plot_ordered_patterns(patterns_gdd, h, J):
     cax = ax.matshow(ordered_patterns, aspect=5)
 #    ax.set_yticklabels(['']+ordered_energies)
 #    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
+    ax.set_xlabel("Neuron")
+    ax.set_ylabel("Pattern")
     plt.show()         
     return np.array(ordered_patterns)
 
