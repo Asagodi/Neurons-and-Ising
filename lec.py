@@ -618,7 +618,9 @@ def distance_histogram(h, J, init_pattern, number_of_runs, time_steps, T):
     return
 
 def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
-                T, matrix_attempted_flips=[], matrix_both_flips = [],
+                T, transition_time_list = [], e_list = [], n_list = [],
+                lems = [] , mc_states = [], path_list = [],
+                matrix_attempted_flips=[], matrix_both_flips = [],
                 matrix_energy_barriers = [], basin_size_list = []):
     "Exploring the energy landscape Tkacik 2014"
     """
@@ -637,22 +639,10 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
     """
     N = h.shape[0]
     num_patt = lem_patterns.shape[0]
-    
-#    print(num_patt)
-    
-    mc_states = [init_pattern]
-    lems = [init_pattern]
-    e_list = []
-    n_list = []
-    transition_time_list = []
-    path_list = []
-    
-#    d_dict = {init_pattern: [0]}
-#    dd_dict = {(init_pattern, init_pattern):[0]}
+    mc_states.append(init_pattern)
+    lems.append(init_pattern) 
     if matrix_attempted_flips == []:
         matrix_attempted_flips = [[[] for i in range(num_patt)] for j in range(num_patt)]
-#    else:
-#        print(len(matrix_attempted_flips[0]), len(matrix_attempted_flips[0][0]))
     if matrix_both_flips == []:
         matrix_both_flips = [[[] for i in range(num_patt)] for j in range(num_patt)]
     if matrix_energy_barriers == []:
@@ -697,36 +687,26 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
             
             if np.any(lem != lems[-1]):
                 transition_time_list.append(t-n_failed_attempts)
-#                dist_to_barrier = n_list[-1]
                 time_spent_in_previous_basin = 0
-#                print(pi, pj)
-#                print("M", len(matrix_attempted_flips))
-#                [print(i, len(matrix_attempted_flips[i])) for i in range(len(matrix_attempted_flips))]
-#                print(pi, pj, t, t_at_previous_basin_crossing, n_failed_attempts)
-                matrix_attempted_flips[pi][pj].append(t - t_at_previous_basin_crossing)
                 matrix_both_flips[pi][pj].append(t - t_at_previous_basin_crossing + n_list[-1])
                 matrix_energy_barriers[pi][pj].append(np.max(e_list[time_spent_in_previous_basin:]))
                 path_list.append(path)
-#                try:
-##                    d_dict[tuple(lem)].append(dist_to_init+n_flips)
-#                    dd_dict[(tuple(lem), tuple(lems[-1]))].append(dist_to_barrier+time_spent_in_previous_basin+n_flips)
-#                except:
-##                    d_dict[tuple(lem)] = [dist_to_init+n_flips]
-#                    dd_dict[(tuple(lem), tuple(lems[-1]))] = [dist_to_barrier+time_spent_in_previous_basin+n_flips]
                 lems.append(lem)
                 pi = pj
                 t_at_previous_basin_crossing = t
             else:
                 time_spent_in_previous_basin += 1
-#            dist_to_barrier = min(dist_to_barrier, n_flips)
         else:
             n_failed_attempts += 1
-    
-#    
-#    print(lem_patterns.shape)
-    return np.array(mc_states), np.array(lems), np.array(lem_patterns), e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list
+    return mc_states, lems, np.array(lem_patterns), e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list
     
 def get_transition_rates(h, J, lem_patterns, mc_time, T=1.):    
+    transition_time_list = []
+    e_list = []
+    n_list = []
+    lems = []
+    mc_states = []
+    path_list = []
     matrix_attempted_flips = []
     matrix_both_flips = []
     matrix_energy_barriers = []
@@ -734,9 +714,11 @@ def get_transition_rates(h, J, lem_patterns, mc_time, T=1.):
     for lem in lem_patterns:
         plot_single_pattern(lem)
         mc_states, lems, lem_patterns, e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list = mc_with_gdd(h, J, lem, lem_patterns, mc_time,
-                                                                                                                                                                    T, matrix_attempted_flips, matrix_both_flips,
+                                                                                                                                                                    T, transition_time_list, e_list, n_list,
+                                                                                                                                                                    lems, mc_states, path_list,
+                                                                                                                                                                    matrix_attempted_flips, matrix_both_flips,
                                                                                                                                                                     matrix_energy_barriers, basin_size_list)
-    return matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, path_list, basin_size_list
+    return lem_patterns, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, path_list, basin_size_list
     
     
 
