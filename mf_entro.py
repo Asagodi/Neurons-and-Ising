@@ -305,7 +305,11 @@ def secant_mp(d, x0, x1, epsilon, h, J, ref_sigma, beta=1., max_steps_k=100,
 
 
 
- max_steps=50
+h = np.loadtxt(path_to_docs+"h_N100l2_bsize10_rlam01.csv", delimiter=',')
+J = np.loadtxt(path_to_docs+"J_N100l2_bsize10_rlam01.csv", delimiter=',')
+s_act = np.loadtxt(path_to_docs + "s_act_head_ang_N100_36.csv", delimiter=',')
+
+max_steps=50
 m_ia = initial_message(N)
 ref_sigma = -ones(N)
 ds = []
@@ -313,7 +317,22 @@ fig = plt.figure()
 ax = fig.add_subplot(111)
 ds = []
 sd = []
-xs = arange(3., -3., -0.25)
+xs = arange(-3., 3., 0.04)
+for x in xs:
+    print(x)
+    h_ = h + x * ref_sigma
+    m_ia = iteration(m_ia, h_, J_, max_steps, delta=10**-2)
+    mi = comput_mag_corre(m_ia, h_, J_, max_steps)
+    q = np.dot(ref_sigma,mi)/float(N)
+    s = distance_entropy(m_ia, h, J_, x, ref_sigma)
+    sd.append(s-x*q)
+    q = np.dot(ref_sigma, mi)/N
+    d = (1-q)/2.
+    ds.append(d)
+cax = ax.plot(xs, ds, 'k', label='increasing x')
+ds = []
+sd = []
+xs = arange(3., -3., -0.04)
 for x in xs:
     print(x)
     h_ = h + x * ref_sigma
@@ -339,4 +358,20 @@ cax = ax.plot(ds, sd, '--r')
 ax.set_ylabel("s(d)")
 ax.set_xlabel("d")
 ax.set_title("Entropy")
+plt.show()
+
+
+
+diff_list = []
+for i,d in enumerate(ds[:-1]):
+    diff = ds[i+1] - d
+    diff_list.append(diff)
+    
+fig = plt.figure()
+ax = fig.add_subplot(111)
+cax = ax.plot(diff_list)
+ax.set_ylabel("Diff")
+ax.set_xlabel("d")
+ax.set_title("Differences")
+ax.legend()
 plt.show()
