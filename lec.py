@@ -808,13 +808,6 @@ def sampled_distance_from_lem(sigma, lem):
     N = sigma.shape[0]
     return (1- np.sum(np.multiply(sigma, lem)/N))/2
 
-def distance_entropy(sigma, lem):
-    #Huang, 2016, Eq 2, epsilon dependency omitted
-    "log-number of states per neuron with overlap Nq (d = (1 − q)/2)"
-    N = sigma.shape[0]
-    
-    return (1/N) * 0 # which states to sum over?
-
 def B_matrix(data_points, c):
     #calculate B matrix for multidimensional scaling
     #see Cox-Multidimensional scaling analysis
@@ -1018,19 +1011,19 @@ def plm_separated(sigmas, max_steps, h, J, h_lambda, J_lambda,
             print("Step: "+str(step),"Min J: " + str(np.min(J)), "Max J: " + str(np.max(J)))
             print("lambda", h_lambda)
 #            print("Min d_J: " + str(np.min(J_primes)), "Max d_J: " + str(np.max(J_primes)))
-#        if step != 0 and (min_av_max[-2][3] > np.min(J) or min_av_max[-2][-1] < np.max(J)):
-#            h_lambda *= .99
-#            J_lambda *= .99
+        if step != 0 and (min_av_max[-2][3] > np.min(J) or min_av_max[-2][-1] < np.max(J)):
+            h_lambda *= .99
+            J_lambda *= .99
 #            print(h_lambda)
-        if total_loss < previous_loss:
-            h_lambda *= 1.05
-            J_lambda *= 1.05
-        elif total_loss > previous_loss + 10**-10: 
-            #undo weight change
-            h += h_lambda*h_primes        
-            J += J_lambda*J_primes
-            h_lambda *= .85
-            J_lambda *= .85
+#        if total_loss < previous_loss:
+#            h_lambda *= 1.05
+#            J_lambda *= 1.05
+#        elif total_loss > previous_loss + 10**-10: 
+#            #undo weight change
+#            h += h_lambda*h_primes        
+#            J += J_lambda*J_primes
+#            h_lambda *= .85
+#            J_lambda *= .85
 
         
         previous_loss = total_loss
@@ -1467,13 +1460,14 @@ def sherrington_kirkpatrick(N, p):
 ##########plotting functions
 def make_expected_patterns(N, n_bumps, length_bump):
     ##look for expected pattern energies and check for local energy minimum
+    # exp_patterns.shape(npatterns, N)
     num_patts = int(N/n_bumps)
     exp_patterns = -ones([N,num_patts]) # second value half if two bumps
     shift = int((N-length_bump*n_bumps)/n_bumps) #int((N - 2*lenght)/4)
     for i in range(num_patts): #half if two bumps
         for n in range(length_bump):
             for b_i in range(n_bumps):
-                exp_patterns[(n +  b_i*(length_bump + shift) + i)% N, i] = 1
+                exp_patterns[i, (n +  b_i*(length_bump + shift) + i)% N] = 1
     return exp_patterns
     
 
@@ -1485,7 +1479,7 @@ def plot_patterns_with_energies(h, J, patterns):
         pattern_energies.append(round(energy,2))
         
         
-    fig = plt.figure(figsize=(10,10))
+    fig = plt.figure(figsize=(8,8))
     ax = fig.add_subplot(111)
     cax = ax.matshow(patterns)
     ax.set_yticklabels(['']+pattern_energies)
@@ -1504,12 +1498,12 @@ def plot_patterns_with_energies(h, J, patterns):
     
     
 def plot_patternsfromexpected_with_energies(h, J, exp_patterns, n_bumps):
-    N = exp_patterns.shape[0]
+    N = exp_patterns.shape[1]
     num_patts = int(N/n_bumps)
     expected_pattern_energies = []
     lems_expected_patterns = []
     lems = zeros([N,num_patts])
-    for i,pattern in enumerate(exp_patterns.T):
+    for i,pattern in enumerate(exp_patterns):
         energy = calc_energy([h,J], pattern)
         expected_pattern_energies.append(round(energy,2))
         lem_patt = gdd(h, J, pattern)
