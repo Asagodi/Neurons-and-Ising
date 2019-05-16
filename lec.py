@@ -287,7 +287,7 @@ def hk(lambda_coeffs, acts):
 
 
 ###combine
-def calc_energy(e_funcs, coeff_list, acts):
+def calc_energy(coeff_list, acts, e_funcs=[h1,h2]):
     #calculates the energy of some neural pattern(s) for some energy functions
     e = 0
     for i in range(len(e_funcs)):
@@ -305,7 +305,7 @@ def average_E(e_funcs, coeff_list, acts):
     sum_E = 0
     nbin = acts.shape[1]
     for i in range(nbin):
-        sum_E += calc_energy(e_funcs, coeff_list, acts[:,i])
+        sum_E += calc_energy(coeff_list, acts[:,i])
         ave_E = sum_E/nbin
     return ave_E
 
@@ -317,7 +317,7 @@ def calc_state_probs(all_states, h, J, beta):
     p_tot = 0
     p_vec = zeros(all_states.shape[0])
     for n, state in enumerate(all_states):
-        e = calc_energy([h1, h2], [h,J], state)
+        e = calc_energy([h,J], state)
         #a modified probability distribution P (σ ) ∝ exp(−βE(σ ) + xσ T σ ∗ )?
         #reference state is one of the stored patterns
         #here: the "bumps"
@@ -346,6 +346,15 @@ def calc_model_expecations(all_states, h, J, beta):
 
 #correlations (#covariance)
 def calc_correlations(s_act, mag):
+    #calculate correlations from neural activity
+    Nneur = s_act.shape[0]
+    nbin = s_act.shape[1]
+    c = zeros([Nneur,Nneur])
+    for i in range(nbin):
+       c += np.outer(s_act[:,i]-mag, s_act[:,i]-mag)
+    return c/nbin
+
+def calc_correlations_without(s_act, mag):
     #calculate correlations from neural activity
     Nneur = s_act.shape[0]
     nbin = s_act.shape[1]
@@ -397,14 +406,14 @@ def mc_step(N, h, J, current_state, Nflips, T):
         
         #step 3
         #calculate energy of old state
-        e_old = calc_energy([h1,h2], [h, J], current_state)
+        e_old = calc_energy([h, J], current_state)
         
         new_state = zeros(N)
         new_state[:] = current_state[:]
         new_state[ijk] =   - current_state[ijk]
         
         #calculate energy of new state
-        e_new = calc_energy([h1,h2], [h, J], new_state)
+        e_new = calc_energy([h, J], new_state)
         
         #energy difference
         e_delta = e_new - e_old
@@ -421,8 +430,7 @@ def mc_step(N, h, J, current_state, Nflips, T):
 def mc_step_2(N, h, J, current_state, e_old, T):
     """Same as mc_step but with Nflips=1"""
     ijk = np.random.randint(0,N)
-    new_state = zeros(N)
-    new_state[:] = current_state[:]
+    new_state = np.array(current_state, copy=True)
     new_state[ijk] =   - current_state[ijk]
     
     #calculate energy of new state
@@ -438,16 +446,14 @@ def mc_step_2(N, h, J, current_state, e_old, T):
 def mc_step_3(N, h, J, current_state, T):
     """Same as mc_step but with Nflips=1"""
     ijk = np.random.randint(0,N)
+    flip=False
     
     #calculate energy of new state    
-    e_delta = 2*current_state[ijk]*(h[ijk] + np.sum(np.dot(J[:,ijk], current_state)))
-    trans_prob = np.exp(-e_delta/T)
-    
-    r = np.random.rand()
-    if r < trans_prob:
+    e_delta = 2*current_state[ijk]*(h[ijk] + np.dot(J[:,ijk], current_state))
+    if np.random.rand() < np.exp(-e_delta/T):
         current_state[ijk] = - current_state[ijk]
-#    print(np.array(current_state), e_delta)
-    return np.array(current_state), e_delta
+        flip=True
+    return np.array(current_state), e_delta, flip
 
 def metropolis_mc(h, J, Nsamples,
                   sample_after, sample_per_steps, T):
@@ -462,20 +468,29 @@ def metropolis_mc(h, J, Nsamples,
     initial_state[initial_state>thr] = 1 
     initial_state[initial_state<=thr] = -1
     mc_samples = zeros([N, Nsamples])
+    energies = []
     Nsteps = int(Nsamples * sample_per_steps)
     current_state = initial_state
 #    e_old = -np.sum(.5*np.multiply(J, np.outer(current_state, current_state)))- np.dot(h, current_state)
     for step in range(0, sample_after, 1):
-        #mc_step_2 faster if Nflips=1
-        current_state, _ = mc_step_3(N, h, J, current_state, T)
+        current_state, _, _ = mc_step_3(N, h, J, current_state, T)
     
-    for step in range(0, Nsteps, 1):
-        current_state, _ = mc_step_3(N, h, J, current_state, T)
+    current_state, e_delta, _ = mc_step_3(N, h, J, current_state, T)
+    mc_samples[:, 0] = current_state
+    energy = calc_energy([h,J], current_state)
+    energies = [energy]
+    for step in range(1, Nsteps, 1):
+        current_state, e_delta, flip = mc_step_3(N, h, J, current_state, T)
         
         if step % sample_per_steps == 0:
             mc_samples[:, int(step / sample_per_steps)] = current_state
+            if flip:
+                ener = energies[-1]+e_delta
+            else:
+                ener = energies[-1]
+            energies.append(ener)
                
-    return mc_samples
+    return mc_samples, energies
 
 def mc_with_start_pattern(h, J, Nsamples, initial_state, sample_after, sample_per_steps, T):
     """Metropolis Monte Carlo simulation with starting point"""
@@ -493,6 +508,63 @@ def mc_with_start_pattern(h, J, Nsamples, initial_state, sample_after, sample_pe
                
     return mc_samples
 
+
+
+def entropy_integrated(h, J, Nsamples, sample_after=1000,
+                       sample_per_steps=None, dT=0.1):
+    """
+    dT = temp_step_size"""
+    ###Overflow if dT=0.01
+    temp = dT/2.  #variance is zero at T=0
+    entropy =.0
+    N = h.shape[0]
+    if sample_per_steps==None:
+        sample_per_steps = 2*N
+    for i in range(int(1./dT)-1):
+        _, energies = metropolis_mc(h, J, Nsamples,
+                  sample_after, sample_per_steps, temp)
+        
+        energy_var = np.var(energies)
+        entropy += energy_var/temp**3*dT
+        temp+=dT
+    
+    return entropy
+
+
+def entropy_integrated_from_T1(h, J, Nsamples, max_steps, delta=0.01,
+                               sample_after=1000, sample_per_steps=None, dT=0.1):
+    """
+    dT = temp_step_size"""
+    temp = 1.  #variance is zero at T=0
+    entropy =.0
+    N = h.shape[0]
+    if sample_per_steps==None:
+        sample_per_steps = 2*N
+    for i in range(max_steps):
+        _, energies = metropolis_mc(h, J, Nsamples,
+                  sample_after, sample_per_steps, temp)
+        
+        energy_var = np.var(energies)
+        delta_entropy = energy_var/temp**3*dT
+        entropy += delta_entropy
+        temp+=dT
+        if delta_entropy < delta:
+            break
+    
+    return entropy
+
+
+def multi_information(h, J, Nsamples, sample_after=1000,
+                       sample_per_steps=None, dT=0.1):
+    N = h.shape[0]
+    s_p_1 = entropy_integrated(h, zeros([N,N]), Nsamples, sample_after=sample_after,
+                       sample_per_steps=sample_per_steps, dT=dT)
+    
+    s_p_12 = entropy_integrated(h, J, Nsamples, sample_after=sample_after,
+                       sample_per_steps=sample_per_steps, dT=dT)
+    
+    return s_p_1 - s_p_12
+
 ##############LEM + MDS
 #greedy descent dynamics
 def gdd(h, J, initial_state=1, ordered_or_random='ordered', inverse=False):
@@ -505,7 +577,7 @@ def gdd(h, J, initial_state=1, ordered_or_random='ordered', inverse=False):
     tracked_states = [np.array(initial_state, copy=True)]
     n_flips = 0
     while True:
-        e_old = calc_energy([h1, h2], [h,J], current_state)
+        e_old = calc_energy([h,J], current_state)
         
 #       attempt to flip spins i~1,N from their current state into {s i , in order of increasing i.
         indices = np.arange(Nneur)
@@ -517,7 +589,7 @@ def gdd(h, J, initial_state=1, ordered_or_random='ordered', inverse=False):
         stop_ind = 0
         for ind in indices:
             current_state[ind] = -current_state[ind]
-            e_new = calc_energy([h1, h2], [h,J], current_state)
+            e_new = calc_energy([h,J], current_state)
             e_delta = e_new - e_old
 #            e_delta = 2*current_state[ind]*(h[ind] + np.sum(np.dot(J[:,ind], current_state)))
             #uphill walk if True
@@ -619,7 +691,7 @@ def distance_histogram(h, J, init_pattern, number_of_runs, time_steps, T):
 
 def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 T, transition_time_list = [], e_list = [], n_list = [],
-                lems = [] , mc_states = [], path_list = [],
+                lems = [], mc_states = [], path_list = [],
                 matrix_attempted_flips=[], matrix_both_flips = [],
                 matrix_energy_barriers = [], basin_size_list = []):
     "Exploring the energy landscape Tkacik 2014"
@@ -655,7 +727,7 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
     pi = np.where(np.dot(lem_patterns, init_pattern) == N)[0][0]
     t_at_previous_basin_crossing = -1
     for t in range(time_steps):
-        current_state, e_delta = mc_step_3(N, h, J, current_state, T)
+        current_state, e_delta, _ = mc_step_3(N, h, J, current_state, T)
         #ordered spin flips in Tkacik, but is that good?
         if np.any(current_state != mc_states[-1]):
             mc_states.append(current_state)
@@ -681,13 +753,14 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 num_patt += 1
                 pj = np.where(np.dot(lem_patterns, lem) == N)[0][0]
             
-            
+            print(pj)
             basin_size_list[pj] += 1
             n_list.append(n_flips)    
             
             if np.any(lem != lems[-1]):
                 transition_time_list.append(t-n_failed_attempts)
                 time_spent_in_previous_basin = 0
+                matrix_attempted_flips[pi][pj].append(t - t_at_previous_basin_crossing)
                 matrix_both_flips[pi][pj].append(t - t_at_previous_basin_crossing + n_list[-1])
                 matrix_energy_barriers[pi][pj].append(np.max(e_list[time_spent_in_previous_basin:]))
                 path_list.append(path)
@@ -698,7 +771,7 @@ def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 time_spent_in_previous_basin += 1
         else:
             n_failed_attempts += 1
-    return mc_states, lems, np.array(lem_patterns), e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list
+    return mc_states, lems, np.array(lem_patterns), e_list, n_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list
     
 def get_transition_rates(h, J, lem_patterns, mc_time, T=1.):    
     transition_time_list = []
@@ -713,7 +786,7 @@ def get_transition_rates(h, J, lem_patterns, mc_time, T=1.):
     basin_size_list = []
     for lem in lem_patterns:
         plot_single_pattern(lem)
-        mc_states, lems, lem_patterns, e_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list = mc_with_gdd(h, J, lem, lem_patterns, mc_time,
+        mc_states, lems, lem_patterns, e_list, n_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list = mc_with_gdd(h, J, lem, lem_patterns, mc_time,
                                                                                                                                                                     T, transition_time_list, e_list, n_list,
                                                                                                                                                                     lems, mc_states, path_list,
                                                                                                                                                                     matrix_attempted_flips, matrix_both_flips,
@@ -917,15 +990,18 @@ def plm_separated(sigmas, max_steps, h, J, h_lambda, J_lambda,
     """
     Nneur = sigmas.shape[0]
     min_av_max = []
+    previous_loss = 0.
     for step in range(max_steps):
         #learning step
         h_primes = zeros(Nneur)
         J_primes = zeros([Nneur,Nneur])
+        total_loss = 0.
         for r in range(Nneur):
             params = np.append(h[r], J[:,r])
             
-            h_primes[r], J_primes[:,r] = f_prime_r(sigmas, r, params,
+            h_primes[r], J_primes[:,r], loss = f_prime_r(sigmas, r, params,
                                                     reg_method, reg_lambda, T)
+            total_loss += loss
         np.fill_diagonal(J_primes, 0)
         h -= h_lambda*h_primes        
         J -= J_lambda*J_primes
@@ -940,12 +1016,27 @@ def plm_separated(sigmas, max_steps, h, J, h_lambda, J_lambda,
         J = A
         if step % 10 == 0:
             print("Step: "+str(step),"Min J: " + str(np.min(J)), "Max J: " + str(np.max(J)))
+            print("lambda", h_lambda)
 #            print("Min d_J: " + str(np.min(J_primes)), "Max d_J: " + str(np.max(J_primes)))
-        if step != 0 and (min_av_max[-2][3] > np.min(J) or min_av_max[-2][-1] < np.max(J)):
-            h_lambda *= .99
-            J_lambda *= .99
+#        if step != 0 and (min_av_max[-2][3] > np.min(J) or min_av_max[-2][-1] < np.max(J)):
+#            h_lambda *= .99
+#            J_lambda *= .99
 #            print(h_lambda)
+        if total_loss < previous_loss:
+            h_lambda *= 1.05
+            J_lambda *= 1.05
+        elif total_loss > previous_loss + 10**-10: 
+            #undo weight change
+            h += h_lambda*h_primes        
+            J += J_lambda*J_primes
+            h_lambda *= .85
+            J_lambda *= .85
+
+        
+        previous_loss = total_loss
         if np.all(np.abs(J_primes) < epsilon) and np.all(np.abs(h_primes) < epsilon):
+            break
+        if h_lambda < 10**-4:
             break
     print("lambda", h_lambda)
     return h, J, np.array(min_av_max)
@@ -959,13 +1050,13 @@ def f_prime_r(sigmas, rth, params, reg_method, reg_lambda, T):
     e_s = exp_sigma_r(params, sigmas, rth, T)
     pes = e_s/(1+e_s)
     f_primes_h = -np.sum(2* pes * sigmas[rth,:]/T)
-
     
+    loss = 0
     Jnorm = np.linalg.norm(params[1:])
     for s in range(Nneur):
         Jsr = params[1:]
         f_primes_J[s] -= np.sum(2*pes*sigmas[rth,:]*sigmas[s,:]/T) 
-        
+        loss += -np.sum(np.log(1/(1+e_s)))
 #        upp_hess = np.sum(4*beta**2*e_s*sigma[s,:]*(1/(1+e_s) + 1)/(1+e_s))
 #        hessian[0, s+1] = upp_hess
 #        hessian[s+1, 0] = upp_hess
@@ -976,6 +1067,7 @@ def f_prime_r(sigmas, rth, params, reg_method, reg_lambda, T):
 #    hessian[0, 0] += 4*beta**2*e_s*(1/(1+e_s) + 1)/(1+e_s)
     f_primes_J /= sigmas.shape[1]
     f_primes_h /= sigmas.shape[1]
+    loss /= sigmas.shape[1]
     ###l1-reg
     if reg_method == "sign":
         f_primes_J += reg_lambda*np.sign(params[1:])
@@ -999,7 +1091,7 @@ def f_prime_r(sigmas, rth, params, reg_method, reg_lambda, T):
 #        a = np.dot(np.linalg(hessian), join_)
 #        f_primes_h = a[0]
 #        f_primes_J = a[1:]
-    return f_primes_h, f_primes_J
+    return f_primes_h, f_primes_J, loss
 
 def exp_sigma_r(params, sigmas, rth, T):
     rth = int(rth)
@@ -1208,6 +1300,7 @@ def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
     for i in range(s_act.shape[1]):
        corrs += np.outer(s_act[:,i], s_act[:,i])
     corrs /= s_act.shape[1]
+    np.fill_diagonal(corrs, 0.)
     
     min_av_max = []
     for step in range(max_steps):
@@ -1220,7 +1313,7 @@ def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
                                      np.min(J), np.average(J), 
                                      np.max(J)])
     
-#        if np.min(h) - min_av_max[-1,0] < epsilon and np.min(h) - min_av_max[-1,0]:
+#        if np.min(h) - min_av_max[-1,0] < epsilon and np.min(h) - min_av_max[-1,0] < epsilon:
 #            break
 #        print(np.average(h), np.average(J))
     return h, J, np.array(min_av_max)
@@ -1228,7 +1321,7 @@ def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
 def calc_exps_mc(h, J, Nsamples, Nflips,
                   sample_after, sample_per_steps, T):
     "Calculates average magnetization and correlations for Boltzmann Learning"
-    mc_samples = metropolis_mc(h, J, Nsamples, Nflips,
+    mc_samples, _ = metropolis_mc(h, J, Nsamples,
                   sample_after, sample_per_steps, T)
     model_exps = np.average(mc_samples, axis=1)
 #    print(model_exps.shape)
@@ -1237,6 +1330,7 @@ def calc_exps_mc(h, J, Nsamples, Nflips,
     for i in range(Nsamples):
        c += np.outer(mc_samples[:,i], mc_samples[:,i])
     model_corrs =  c/Nsamples
+    np.fill_diagonal(model_corrs, 0.)
     return model_exps, model_corrs
 
 
@@ -1387,7 +1481,7 @@ def plot_patterns_with_energies(h, J, patterns):
     N = h.shape[0]
     pattern_energies = []
     for i,pattern in enumerate(patterns):
-        energy = calc_energy([h1,h2], [h,J], pattern)
+        energy = calc_energy([h,J], pattern)
         pattern_energies.append(round(energy,2))
         
         
@@ -1416,11 +1510,11 @@ def plot_patternsfromexpected_with_energies(h, J, exp_patterns, n_bumps):
     lems_expected_patterns = []
     lems = zeros([N,num_patts])
     for i,pattern in enumerate(exp_patterns.T):
-        energy = calc_energy([h1,h2], [h,J], pattern)
+        energy = calc_energy([h,J], pattern)
         expected_pattern_energies.append(round(energy,2))
         lem_patt = gdd(h, J, pattern)
         lems[:,i] = lem_patt
-        lems_expected_patterns.append(calc_energy([h1,h2], [h,J], lem_patt))
+        lems_expected_patterns.append(calc_energy([h,J], lem_patt))
         
         
     fig = plt.figure(figsize=(10,10))
@@ -1445,6 +1539,7 @@ def plot_patternsfromexpected_with_energies(h, J, exp_patterns, n_bumps):
     return lems
 
 def plot_ordered_patterns(patterns_gdd, h, J):
+    "ordered_patterns.shape = (number of patterns, number of neurons)"
     N = h.shape[0]
     tuple_codewords = map(tuple, patterns_gdd)
     freq_dict_gdd = Counter(tuple_codewords)
@@ -1458,7 +1553,7 @@ def plot_ordered_patterns(patterns_gdd, h, J):
     n_oel = []
     energies = []
     for pattern in freq_dict_gdd.keys():
-        energy = calc_energy([h1,h2], [h,J], pattern)
+        energy = calc_energy([h,J], pattern)
         stored_energies.append(energy)
         oel.append("Prob. %.3f, Energy: %.1f" % (freq_dict_gdd.get(pattern)/float(np.sum(list(freq_dict_gdd.values()))), energy))
         n_oel.append("Energy: %.1f" % (energy))
@@ -1551,7 +1646,7 @@ def calculate_energies_for_paths(paths, h, J):
     for path_between in paths:
         energies_on_this_path = []
         for pattern in path_between:
-            energies_on_this_path.append(calc_energy([h1,h2], [h,J], pattern))
+            energies_on_this_path.append(calc_energy([h,J], pattern))
         energies_per_path.append(energies_on_this_path)
     return energies_per_path
 
@@ -1735,7 +1830,7 @@ def edge_contribution(i, j, h, J, mij_mat, mij_tilde):
 
 ###Huang 2016 Clustering...
 
-def message_passing(h, J, max_steps):
+def message_passing2(h, J, max_steps):
     N = h.shape[0]
 #    if x != 0.:
 #        #with x \sigma^* \sigma
@@ -1763,31 +1858,66 @@ def message_passing(h, J, max_steps):
     
     return mia, mbi_tilde
 
+def message_passing(h, J, max_steps):
+    N = h.shape[0]
+    mia = np.random.random((N, N))
+    mia = np.triu(mia,k=1)
+    
+    for step in range(max_steps):
+        for i in range(N):
+            for j in range(i,N):
+                sum_b = 0.
+                for k in range(N):
+                    if k!=j and k!=i:
+                        a=k
+                        b=j
+                        if k>j:
+                            a=j
+                            b=k
+                        sum_b += J[a,b] * mia[a,b]
+                mia[i,j] = np.tanh(h[i] + sum_b)
+    
+    return mia
 
-def message_passing_with(mia, mbi_tilde, h, J, max_steps):
+def message_passing_with(mia, h, J, max_steps):
+    N = h.shape[0] 
+    for step in range(max_steps):
+        for i in range(N):
+            for j in range(i,N):
+                sum_b = 0.
+                for k in range(N):
+                    if k!=j and k!=i:
+                        a=k
+                        b=j
+                        if k>j:
+                            a=j
+                            b=k
+                        sum_b += tanh(J[a,b]) * mia[a,b]
+                mia[i,j] = np.tanh(h[i] + np.arctanh(sum_b))
+    
+    return mia
+
+def message_passing_with2(mia, mbi_tilde, h, J, max_steps):
     N = J.shape[0]
-    if mia == []:
-        mia = zeros([N,N])
-    if mbi_tilde == []:
-        mbi_tilde = zeros([N,N])
     for step in range(max_steps):
         for i in range(N):
             for j in range(N):
-            
                 mia[i,j] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:][~(np.arange(N) == j)]))) 
         for i in range(N):
             for j in range(N):
-                mbi_tilde[j,i] = np.tanh(J[j,i] * mia[j,i])
+                mbi_tilde[j,i] = np.tanh(J[j,i]) * mia[j,i]
     
     return mia, mbi_tilde
 
 
-def free_energy(h, J, mia, mbi_tilde):
+def free_energy(h, J, mia):
     N = h.shape[0]
     F = 0
     for i in range(N):
-        F += free_energy_contribution_one_neuron(i, h, J, mbi_tilde)
-        for j in range(N):
+        #F_i
+        F += free_energy_contribution_one_neuron(i, h, J, mia)
+        for j in range(i,N):
+            #F_a
             F -= free_energy_contribution_one_interaction(i, j, h, J, mia)
     return F
 
@@ -1800,9 +1930,9 @@ def free_energy(h, J, mia, mbi_tilde):
 #            f -= float(N-1)/N*free_energy_contribution_one_interaction(i, j, h, J, mia)
 #    return f
 
-def free_energy_contribution_one_neuron(i, h, J, mbi_tilde):
-    Hi = H(i,1,h,J,mbi_tilde)#np.exp(h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+mbi_tilde[:,i]))))
-    Hi += H(i,-1,h,J,mbi_tilde)#np.exp(-h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1-mbi_tilde[:,i]))))
+def free_energy_contribution_one_neuron(i, h, J, mia):
+    Hi = H(i,1,h,J,mia)#np.exp(h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+mbi_tilde[:,i]))))
+    Hi += H(i,-1,h,J,mia)#np.exp(-h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1-mbi_tilde[:,i]))))
     return -np.log(Hi)#-ln Z_i = 
 
 def free_energy_contribution_one_interaction(i, j, h, J,  mia):
@@ -1811,34 +1941,69 @@ def free_energy_contribution_one_interaction(i, j, h, J,  mia):
 
 
 
-def energy_of_neural_population(h, J, mia, mbi_tilde):
+def energy_of_neural_population(h, J, mia):
     E = 0
     N = h.shape[0]
     for i in range(N):
-        E -= energy_contribution_one_neuron(i, h, J, mia, mbi_tilde)
-        for j in range(N):
+        E -= energy_contribution_one_neuron(i, h, J, mia)
+        for j in range(i,N):
+            #E_a
             E += energy_contribution_one_interaction(i, j, h, J, mia)
     return E
 
-def H(i,y,h,J,mbi_tilde):
-    return np.exp(y*h[i])*np.prod(np.cosh(np.multiply(J[i,:],(1+y*mbi_tilde[i,:]))))
+def H(i,y,h,J,mia):
+    product = np.exp(y*h[i])
+    for j in range(N):
+        a=j
+        b=i
+        if j<i:
+            a=i
+            b=j
+        product *= np.cosh(J[a,b]*(1+y*tanh(J[a,b]*mia[a,b])))
+    return product
 #    return np.exp(y*h[i])*np.prod(np.cosh(np.multiply(J[:,i],(1+y*mbi_tilde[:,i]))))
 
-def G(i,y,h,J,mia,mbi_tilde):
+#def G(i,y,h,J,mia,mbi_tilde):
+#    Gi = 0
+#    N= h.shape[0]
+#    for j in range(N):
+#        expyhi = np.exp(y*h[i])
+#        gamsin = J[i,j]*np.sinh(J[i,j]*(1+y*mbi_tilde[j,i]))
+#        ygam = y*J[i,j]*np.cosh(J[i,j]*(1-np.tanh(J[i,j])**2) * mia[j,i])
+#        endprod = np.prod(np.cosh(np.multiply(J[i,:][~(np.arange(N) == j)], (1+y*mbi_tilde[i,:][~(np.arange(N) == j)]))))
+#        Gi += expyhi * (gamsin + ygam) * endprod 
+##        print(expyhi, gamsin, ygam, endprod, Gi)
+##    print(Gi)
+#    return Gi
+
+def G(i,y,h,J,mia):
     Gi = 0
     N= h.shape[0]
     for j in range(N):
+        a=j
+        b=i
+        if j>i:
+            a=i
+            b=j
         expyhi = np.exp(y*h[i])
-        gamsin = J[i,j]*np.sinh(J[i,j]*(1+y*mbi_tilde[j,i]))
+        gamsin = J[i,j]*np.sinh(J[i,j]*(1+y*tanh(J[i,j]*mia[a,b])))
         ygam = y*J[i,j]*np.cosh(J[i,j]*(1-np.tanh(J[i,j])**2) * mia[j,i])
-        endprod = np.prod(np.cosh(np.multiply(J[i,:][~(np.arange(N) == j)], (1+y*mbi_tilde[i,:][~(np.arange(N) == j)]))))
+        endprod = 1.
+        for k in range(N):
+            c=k
+            d=i
+            if k!=j:
+                c=i
+                d=k
+                endprod *= np.cosh(J[c,d]*(1+y*tanh(J[c,d]*mia[c,d])))
         Gi += expyhi * (gamsin + ygam) * endprod 
 #        print(expyhi, gamsin, ygam, endprod, Gi)
 #    print(Gi)
     return Gi
 
-def energy_contribution_one_neuron(i, h, J, mia, mbi_tilde):
-    return  (h[i]*(H(i,1.,h,J,mbi_tilde) - H(i,-1.,h,J,mbi_tilde)) + G(i,1.,h,J,mia,mbi_tilde) + G(i,-1.,h,J,mia,mbi_tilde))/(H(i,1.,h,J,mbi_tilde) + H(i,-1.,h,J,mbi_tilde))
+
+def energy_contribution_one_neuron(i, h, J, mia,):
+    return  (h[i]*(H(i,1.,h,J,mia) - H(i,-1.,h,J,mia)) + G(i,1.,h,J,mia) + G(i,-1.,h,J,mia))/(H(i,1.,h,J,mia) + H(i,-1.,h,J,mia))
      
     
 def energy_contribution_one_interaction(i, j, h, J, mia):
@@ -1852,9 +2017,9 @@ def S(h, J, x, beta, ref_sigma, max_steps):
     h_var = beta*h + x*ref_sigma
     J_var = beta*J
     #returns S = -F + E ##Huang 2016
-    mia, mbi_tilde = message_passing(h_var, J_var, max_steps)
-    F = free_energy(h_var, J_var, mia, mbi_tilde)
-    E = energy_of_neural_population(h_var, J_var, mia, mbi_tilde)
+    mia = message_passing(h_var, J_var, max_steps)
+    F = free_energy(h_var, J_var, mia)
+    E = energy_of_neural_population(h_var, J_var, mia)
     return -F + E
 
 
@@ -1883,13 +2048,22 @@ def s_q(h, J, xs, beta, ref_sigma, max_steps):
     return ent_list
 #    return min(ent_list) #, xs[np.where(ent_list == min(ent_list))]
 
-def model_spiking_rate(h, mbi_tilde):
-#    N = h.shape[0]
-#    mi = zeros(N)
-#    for i in range(N):
-#        mi[i] = np.tanh(h[i] + np.sum(np.arctanh(mbi_tilde[i,:]))) 
-    
-    return np.tanh(h + np.sum(np.arctanh(mbi_tilde), axis=1))
+def model_spiking_rate(h, J, mia):
+    N = h.shape[0]
+    mi = zeros(N)
+    for i in range(N):
+        for j in range(N):
+            sum_b = 0.
+            if j!=i:
+                a=i
+                b=j
+                if j>i:
+                    a=j
+                    b=i
+                sum_b += J[a,b]*mia[a,b]
+        mi[i] = np.tanh(h[i] + sum_b) 
+    return mi
+#    return np.tanh(h + np.sum(np.arctanh(mbi_tilde), axis=1))
 
 
 def multi_neuron_correlation(J, mia):
@@ -1897,18 +2071,18 @@ def multi_neuron_correlation(J, mia):
     N = J.shape[0]
     corrs = zeros([N,N])
     for i in range(N):
-        for j in range(N): #for \Gamma_ii only mia[i,i]
+        for j in range(i,N): 
             corrs[i,j] = (np.tanh(J[i,j]) + mia[i,j]*mia[j,i])/(1+np.tanh(J[i,j]*mia[i,j]*mia[j,i]))
     return corrs
 
 
 def learning_eqs(mag_sim, corrs_sim, h, J, learning_rate, max_steps, max_steps_mp):
     min_av_max = []
-    h_mp=h
-    J_mp=J
+    h_mp=np.array(h,copy=True)
+    J_mp=np.array(J,copy=True)
     for step in range(max_steps):
-        mia, mbi_tilde = message_passing(h_mp, J_mp, max_steps_mp)
-        h_mp += learning_rate * (mag_sim - model_spiking_rate(h_mp, mbi_tilde))
+        mia = message_passing(h_mp, J_mp, max_steps_mp)
+        h_mp += learning_rate * (mag_sim - model_spiking_rate(h_mp, J_mp, mia))
         J_mp += learning_rate * (corrs_sim - multi_neuron_correlation(J_mp, mia))
         min_av_max.append(np.array([np.min(h_mp), np.average(h_mp), 
                                      np.max(h_mp),
@@ -2014,7 +2188,8 @@ def secant2(d, x0, x1, epsilon, max_steps_k, h, J, xs, beta, ref_sigma, max_step
     return xk, s
 
 
-def secant3(d, x0, x1, epsilon, max_steps_k, h, J, beta, ref_sigma, max_steps_sq, max_steps_mp):
+def secant3(d, x0, x1, epsilon, max_steps_k, h, J, beta, ref_sigma,
+            max_steps_sq, max_steps_mp):
     q_til = d_to_q(d)
     J_var = beta*J
     N=h.shape[0]
@@ -2022,14 +2197,14 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, beta, ref_sigma, max_steps_sq
     xk_1 = x0
     xk = x1
     h_var = beta*h + xk_1*ref_sigma
-    mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
-    mag = model_spiking_rate(h_var, mbi_tilde)
+    mia = message_passing(h_var, J_var, max_steps_mp)
+    mag = model_spiking_rate(h_var, J_var, mia)
     F_prev = np.dot(ref_sigma, mag)/N - q_til
     
     for k in range(max_steps_k):
         h_var = beta*h + xk*ref_sigma
-        mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
-        mag = model_spiking_rate(h_var, mbi_tilde)
+        mia = message_passing(h_var, J_var, max_steps_mp)
+        mag = model_spiking_rate(h_var, J_var, mia)
         F_curr = np.dot(ref_sigma, mag)/N - q_til
         
         B_k = (F_curr - F_prev)/(xk - xk_1)
@@ -2040,18 +2215,17 @@ def secant3(d, x0, x1, epsilon, max_steps_k, h, J, beta, ref_sigma, max_steps_sq
         print("F(x_k):", F_curr, "X_k:", xk)
         if abs(F_curr - 0.) < epsilon:
             h_var = beta*h + xk*ref_sigma
-            mia, mbi_tilde = message_passing(h_var, J_var, max_steps_mp)
+            mia = message_passing(h_var, J_var, max_steps_mp)
             break
         
         F_prev = F_curr
     if k==max_steps_k-1:
         print("Did not converge in %d steps" %max_steps_k)
-#    f = free_energy(h_var, J_var, mia, mbi_tilde)/N
-#    f_h = free_energy(h, J, mia, mbi_tilde)/N
-#    e = energy_of_neural_population(h, J, mia, mbi_tilde)/N
-#    s = -f + e - xk*q_til
-    s = 0
-#    print(d, q_til, xk, -f, -f_h, e, -f + e, -f + e -xk*q_til, -f_h + e -xk*q_til)
+    f = free_energy(h_var, J_var, mia)/N
+    f_h = free_energy(h, J, mia)/N
+    e = energy_of_neural_population(h, J, mia)/N
+    s = -f + e - xk*q_til
+    print(d, q_til, xk, -f, -f_h, e, -f + e, -f + e -xk*q_til, -f_h + e -xk*q_til)
 #    s = S(h, J, xk, beta, ref_sigma, max_steps_mp)/float(N) #- xk*q_til
 #    s = entropy_bethe(h_var, J_var, 1)/N #- xk*q_til
     return xk, s
@@ -2103,6 +2277,8 @@ def make_hopfield_weights(pattern_list):
     weights = zeros([N, N])
     for pattern in pattern_list:
         weights += np.outer(pattern, pattern)   
+        
+    np.fill_diagonal(weights, 0)
     return weights/float(N)
 
 
