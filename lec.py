@@ -354,13 +354,13 @@ def calc_correlations(s_act, mag):
        c += np.outer(s_act[:,i]-mag, s_act[:,i]-mag)
     return c/nbin
 
-def calc_correlations_without(s_act, mag):
+def calc_correlations_without(s_act):
     #calculate correlations from neural activity
     Nneur = s_act.shape[0]
     nbin = s_act.shape[1]
     c = zeros([Nneur,Nneur])
     for i in range(nbin):
-       c += np.outer(s_act[:,i]-mag, s_act[:,i]-mag)
+       c += np.outer(s_act[:,i], s_act[:,i])
     return c/nbin
 
 def calc_third_order_corr(s_act, mag):
@@ -685,9 +685,7 @@ def lem_from_data(h, J, s_act, ordered_or_random):
 
 ###distance by changing states one-for-one and then using gdd to determine if they
 #belonh to another basin now
-def distance_histogram(h, J, init_pattern, number_of_runs, time_steps, T):
-    
-    return
+
 
 def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 T, transition_time_list = [], e_list = [], n_list = [],
@@ -785,7 +783,7 @@ def get_transition_rates(h, J, lem_patterns, mc_time, T=1.):
     matrix_energy_barriers = []
     basin_size_list = []
     for lem in lem_patterns:
-        plot_single_pattern(lem)
+#        plot_single_pattern(lem)
         mc_states, lems, lem_patterns, e_list, n_list, matrix_attempted_flips, matrix_both_flips, matrix_energy_barriers, transition_time_list, path_list, basin_size_list = mc_with_gdd(h, J, lem, lem_patterns, mc_time,
                                                                                                                                                                     T, transition_time_list, e_list, n_list,
                                                                                                                                                                     lems, mc_states, path_list,
@@ -795,7 +793,105 @@ def get_transition_rates(h, J, lem_patterns, mc_time, T=1.):
     
     
 
+def cross_val(s_act, reg_lambda_list, max_steps,
+              h_lambda, J_lambda, reg_method, epsilon, T,
+              Nsamples, sample_per_steps, sample_after=1000):
+    N = s_act.shape[0]
+    cross_n = len(reg_lambda_list)
+    dl = s_act.shape[1]
+    data_chunks = [s_act[:,int(i*dl/cross_n):int((i+1)*dl/cross_n)] for i in range(cross_n)]
 
+    errors = zeros((cross_n, cross_n))
+    for k, reg_lambda in enumerate(reg_lambda_list):
+        
+        for j in range(cross_n):
+            data = np.reshape(np.array([data_chunks[i] for i in range(cross_n) if i!=j]), (N, int((cross_n-1)*dl/cross_n)))
+            h = zeros(N)
+            J = np.random.uniform(-.5, .5, [N,N])
+            h, J, min_av_max_plm = plm_separated(data, max_steps,
+                                    h, J, h_lambda, J_lambda,
+                                    reg_method, reg_lambda, epsilon, 1.)
+                        
+            
+            mag_sim = np.average(data_chunks[j], axis=1)
+            corrs_sim = calc_correlations(data_chunks[j], mag_sim)
+            corrs3_sim = calc_third_order_corr(data_chunks[j], mag_sim)
+            
+            s_act_inferred = metropolis_mc(h, J, Nsamples,
+                          sample_after, sample_per_steps, 1.)
+            mag_inf = np.average(s_act_inferred, axis=1)
+            corrs_inf = calc_correlations(s_act_inferred, mag_inf)
+            corrs3_inf = calc_third_order_corr(s_act_inferred, mag_inf)
+            
+            fig = plt.figure(figsize=(7.5, 7.5))
+            ax = fig.add_subplot(111)
+            cax = ax.plot([-1, 1], [-1, 1], c="r")
+            cax = ax.plot(corrs_sim.flatten(), corrs_inf.flatten(), 'x', c='tab:orange', label="Correlations")
+            cax = ax.plot(corrs3_sim.flatten(), corrs3_inf.flatten(), 'x', c='g', label="Third order correlations")
+            cax = ax.plot(mag_sim, mag_inf, 'o', c='b', label="Average magnetization")
+            ax.set_xlabel("Data")
+            ax.set_ylabel("Inferred")
+            ax.legend()
+            plt.show()
+            
+            error = np.sqrt((np.sum(np.square(mag_sim - mag_inf)) + np.sum(np.square(corrs_sim - corrs_inf)) + np.sum(np.square(corrs3_sim - corrs3_inf)))/float(N+N*N+N*N*N))
+            errors[k, j] = error
+            
+            print(error)
+    
+    ave_err = np.average(errors, axis=1)
+    min_reg_lambda = reg_lambda_list[np.where(np.min(ave_err)==ave_err)[0]]
+    return min_reg_lambda, errors
+
+def cross_val_all(s_act, reg_lambda_list, max_steps,
+              h_lambda, J_lambda, reg_method, epsilon, T,
+              Nsamples, sample_per_steps, sample_after=1000):
+    N = s_act.shape[0]
+    cross_n = len(reg_lambda_list)
+    
+    mag_sim = np.average(s_act, axis=1)
+    corrs_sim = calc_correlations(s_act, mag_sim)
+    corrs3_sim = calc_third_order_corr(s_act, mag_sim)
+
+    h_list = []
+    J_list = []
+    errors = zeros((cross_n))
+    for k, reg_lambda in enumerate(reg_lambda_list):
+        
+        h = zeros(N)
+        J = np.random.uniform(-.5, .5, [N,N])
+        h, J, min_av_max_plm = plm_separated(s_act, max_steps,
+                                h, J, h_lambda, J_lambda,
+                                reg_method, reg_lambda, epsilon, 1.)
+        h_list.append(h)
+        J_list.append(J)
+        s_act_inferred = metropolis_mc(h, J, Nsamples,
+                      sample_after, sample_per_steps, 1.)
+        mag_inf = np.average(s_act_inferred, axis=1)
+        corrs_inf = calc_correlations(s_act_inferred, mag_inf)
+        corrs3_inf = calc_third_order_corr(s_act_inferred, mag_inf)
+        
+        fig = plt.figure(figsize=(7.5, 7.5))
+        ax = fig.add_subplot(111)
+        cax = ax.plot([-1, 1], [-1, 1], c="r")
+        cax = ax.plot(corrs_sim.flatten(), corrs_inf.flatten(), 'x', c='tab:orange', label="Correlations")
+        cax = ax.plot(corrs3_sim.flatten(), corrs3_inf.flatten(), 'x', c='g', label="Third order correlations")
+        cax = ax.plot(mag_sim, mag_inf, 'o', c='b', label="Average magnetization")
+        ax.set_xlabel("Data")
+        ax.set_ylabel("Inferred")
+        ax.legend()
+        plt.show()
+        
+        error = np.sqrt(np.average(np.square(mag_sim - mag_inf)) + np.average(np.square(corrs_sim - corrs_inf)) + np.average(np.square(corrs3_sim - corrs3_inf)))
+        errors[k] = error
+        
+        print(error)
+    
+    min_reg_lambda_index = np.where(np.min(errors)==errors)[0][0]
+    min_reg_lambda = reg_lambda_list[min_reg_lambda_index]
+    min_h = h_list[min_reg_lambda_index]
+    min_J = J_list[min_reg_lambda_index]
+    return min_reg_lambda, min_h, min_J, errors
 
 def hamming_distance(sigma_1, sigma_2):
     #Calculates the Hamming distance between two neural patterns
@@ -1283,22 +1379,21 @@ def calc_exp_corr(N, h, J, beta):
     corrs /= p_tot
     return model_exps, corrs
 
-def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
-                  sample_after, sample_per_steps, T):
+def boltzmann_learning(s_act, max_steps, l_rate, h, J, Nsamples,
+                  sample_after, sample_per_steps, epsilon=10**-3, T=1.):
     """Boltzmann Learning with Monte Carlo sampling to determine 
     model expectations and correlations"""
-    #stopping condition?
+    N = s_act.shape[0]
     mag = np.average(s_act, axis=1)
-    corrs = zeros([N,N])
-    for i in range(s_act.shape[1]):
-       corrs += np.outer(s_act[:,i], s_act[:,i])
-    corrs /= s_act.shape[1]
+    corrs = calc_correlations_without(s_act)
     np.fill_diagonal(corrs, 0.)
     
     min_av_max = []
+    error_list = []
     for step in range(max_steps):
-        model_exps, model_corrs = calc_exps_mc(h, J, Nsamples, Nflips,
+        model_exps, model_corrs = calc_exps_mc(h, J, Nsamples,
                   sample_after, sample_per_steps, T)
+        
         h += l_rate*(mag - model_exps)
         J += l_rate*(corrs - model_corrs)
         min_av_max.append([np.min(h), np.average(h), 
@@ -1306,13 +1401,18 @@ def boltzmann_learning(N, s_act, max_steps, l_rate, h, J, Nsamples, Nflips,
                                      np.min(J), np.average(J), 
                                      np.max(J)])
     
-#        if np.min(h) - min_av_max[-1,0] < epsilon and np.min(h) - min_av_max[-1,0] < epsilon:
-#            break
-#        print(np.average(h), np.average(J))
-    return h, J, np.array(min_av_max)
+        error = np.sqrt((np.sum(np.square(mag - model_exps)) + np.sum(np.square(corrs - model_corrs)))/float(N+N*N))
+        error_list.append(error)
+        l_rate = np.min([error, 0.05])
+#        if step % (max_steps / 3) == 0 and step!=0:
+#            l_rate /= 2. 
+#            print(step, l_rate)
+        if np.all(np.abs(mag - model_exps) < epsilon)  and np.all(np.abs(corrs - model_corrs) < epsilon):
+            break
 
-def calc_exps_mc(h, J, Nsamples, Nflips,
-                  sample_after, sample_per_steps, T):
+    return h, J, np.array(min_av_max), error_list
+
+def calc_exps_mc(h, J, Nsamples, sample_after, sample_per_steps, T):
     "Calculates average magnetization and correlations for Boltzmann Learning"
     mc_samples, _ = metropolis_mc(h, J, Nsamples,
                   sample_after, sample_per_steps, T)
@@ -1472,7 +1572,6 @@ def make_expected_patterns(N, n_bumps, length_bump):
     
 
 def plot_patterns_with_energies(h, J, patterns):
-    N = h.shape[0]
     pattern_energies = []
     for i,pattern in enumerate(patterns):
         energy = calc_energy([h,J], pattern)
@@ -1603,6 +1702,33 @@ def plot_ordered_patterns(patterns_gdd, h, J):
     ax.set_ylabel("Pattern")
     plt.show()         
     return np.array(ordered_patterns)
+
+
+def order_patterns(patterns_gdd, h, J):
+    "ordered_patterns.shape = (number of patterns, number of neurons)"
+    N = h.shape[0]
+    tuple_codewords = map(tuple, patterns_gdd)
+    freq_dict_gdd = Counter(tuple_codewords)    
+    ###order and plot found local energy minima
+    ordered_indices = []
+    for j in range(N):
+        for i in range(len(freq_dict_gdd.keys())): 
+            if list(freq_dict_gdd.keys())[i][j-3] == -1. and list(freq_dict_gdd.keys())[i][j-2] == -1. and list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
+                ordered_indices.append(i)
+    for i in range(len(freq_dict_gdd.keys())): 
+        if i not in ordered_indices:
+            ordered_indices.append(i)
+               
+    ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
+    
+    return np.array(ordered_patterns)
+
+def calc_pattern_energies(patterns, h, J):
+    energies = []
+    for pattern in patterns:
+        energy = calc_energy([h,J], pattern)
+        energies.append(energy)
+    return energies
 
 
 def get_indices_where_different(pattern1, pattern2):
