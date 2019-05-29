@@ -1704,9 +1704,9 @@ def plot_ordered_patterns(patterns_gdd, h, J):
     return np.array(ordered_patterns)
 
 
-def order_patterns(patterns_gdd, h, J):
+def order_patterns(patterns_gdd):
+    N = patterns_gdd.shape[1]
     "ordered_patterns.shape = (number of patterns, number of neurons)"
-    N = h.shape[0]
     tuple_codewords = map(tuple, patterns_gdd)
     freq_dict_gdd = Counter(tuple_codewords)    
     ###order and plot found local energy minima
