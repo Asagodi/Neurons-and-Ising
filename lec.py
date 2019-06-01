@@ -1396,17 +1396,13 @@ def boltzmann_learning(s_act, max_steps, l_rate, h, J, Nsamples,
         
         h += l_rate*(mag - model_exps)
         J += l_rate*(corrs - model_corrs)
-        min_av_max.append([np.min(h), np.average(h), 
-                                     np.max(h),
-                                     np.min(J), np.average(J), 
-                                     np.max(J)])
+        min_av_max.append([np.min(h), np.average(h), np.max(h), np.var(h),
+                           np.min(J), np.average(J), np.max(J), np.var(J)])
     
         error = np.sqrt((np.sum(np.square(mag - model_exps)) + np.sum(np.square(corrs - model_corrs)))/float(N+N*N))
         error_list.append(error)
-        l_rate = np.min([error, 0.05])
-#        if step % (max_steps / 3) == 0 and step!=0:
-#            l_rate /= 2. 
-#            print(step, l_rate)
+#        l_rate = np.min([error, 0.05])
+        l_rate = np.exp(-step/(0.5*max_steps)-2.25)
         if np.all(np.abs(mag - model_exps) < epsilon)  and np.all(np.abs(corrs - model_corrs) < epsilon):
             break
 
