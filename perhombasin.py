@@ -50,7 +50,7 @@ J = make_hopfield_weights(exp_patts)
 all_energies = np.array(calc_energy_list([h,J], all_states))
 
 #take subset of all states (f^-1  of neighbourhoods around minima)
-all_states = all_states[np.where(np.array(all_energies) < min(all_energies)+4)[0],:]
+all_states = all_states[np.where(np.array(all_energies) < min(all_energies)+5)[0],:]
 all_energies = np.array(calc_energy_list([h,J], all_states))
 
 all_states_num = all_states.shape[0] # == 2**N
@@ -132,9 +132,13 @@ for i in range(all_states_num):
             list_of_lems.append(all_states[lems_indx_from_here,:])
             
             
+            
+#order#?
+ordered_patterns = order_patterns(all_states[all_lems,:])
+
 #get basins
 list_of_basins = []  #one for each LEM
-for lem in all_states[all_lems,:]:
+for lem in ordered_patterns:
     basin = []
     for i, patterns in enumerate(list_of_lems):
         for patt in patterns:
@@ -147,17 +151,29 @@ for lem in all_states[all_lems,:]:
     
 G = nx.Graph()
 for i, ui in enumerate(list_of_basins):
-    G.add_node(str(i))
+    G.add_node(str(i+1))
     for j, uj in enumerate(list_of_basins):
         
         ##check for overlap between clusters (basins)
         for patti in ui:
             for pattj in uj:
                 if np.all(patti==pattj) and i!=j:
-                    G.add_edge(str(i), str(j))
+                    G.add_edge(str(i+1), str(j+1))
     
-    
-nx.draw_spectral(G)
+plt.figure(figsize=(7,7))   
+nx.draw_spectral(G, with_labels = True)
+plt.show()
+
+
+plt.figure()
+plt.imshow(ordered_patterns)
+plt.xticks(range(0,N,2), range(1,N+1, 2))
+plt.yticks(range(0,N,2), range(1,N+1, 2))
+plt.xlabel("Neuron")
+plt.ylabel("LEM")
+plt.title("LEMs")
+plt.show()
+
 
 #for i in range(all_states_num):
 #    fig = plt.figure()
