@@ -118,6 +118,35 @@ def sim_dyn_one_d(N, extinp, inh, R, umax, dtinv,
                 plt.xlabel('heading direction')
     return activities, vs, thetas
 
+
+def sim_dyn_one_d_wo(N, extinp, inh, R, umax, dtinv,
+              tau, time, ell, alpha, data, dt):
+    W, theta = make_connection_matrix(N, inh, R, ell)
+    W = sparse.csc_matrix(W)
+    S = zeros(N)
+    for i in range(N):
+      if(rand()<0.5):
+        S[i] = rand()  
+    activities = zeros([N,time])
+    Stemp = zeros(N)
+    vs = []
+    thetas = []
+    angle_i = 0
+    for t in range(0, time, 1):
+        if t % 25 == 0 and angle_i+1 < len(data): 
+            theta_t = data[angle_i] #- data[angle_i-1] + .5*pi
+            v = np.abs(data[angle_i-1]  - data[angle_i+1])
+            if v > pi:
+                v = 2*pi - v
+            v *= 40
+            angle_i += 1 
+            vs.append(v)
+            thetas.append(cos(theta_t - theta))
+        S = S + 1./(dtinv+tau) * (-S + maximum(0., extinp+S*W + alpha * v * cos(theta_t - theta)))
+        S[S<0.00001] = 0.
+        activities[:,t] = S
+    return activities, vs, thetas
+
 def make_burak(N, inh, R, ell, lambda_net):
     theta = zeros([N])
     theta[0:N:2] = 0
@@ -272,7 +301,7 @@ def h1(h_coeffs, acts):
 
 #H2 
 def h2(j_coeffs, acts):
-    #j_coeffs a functional coupling matrix
+    #j_coeffs a (functional) coupling matrix
     return -np.sum(.5*np.multiply(j_coeffs, np.outer(acts, acts)))
 
 #Hk
@@ -293,6 +322,9 @@ def calc_energy(coeff_list, acts, e_funcs=[h1,h2]):
     for i in range(len(e_funcs)):
         e += e_funcs[i](coeff_list[i], acts)
     return e
+
+def calc_energy_list(coeff_list, acts, e_funcs=[h1,h2]):
+    return [calc_energy(coeff_list, patt, e_funcs=[h1,h2]) for patt in acts]
 
 def calc_entropy(e_funcs, h, J, acts, beta):
     #calculates the entropy of some neural pattern(s)
@@ -455,18 +487,19 @@ def mc_step_3(N, h, J, current_state, T):
         flip=True
     return np.array(current_state), e_delta, flip
 
-def metropolis_mc(h, J, Nsamples,
-                  sample_after, sample_per_steps, T):
+def metropolis_mc(h, J, Nsamples, sample_after, sample_per_steps, T,
+                  initial_state=None):
     """Metropolis Monte Carlo simulation with spin flip
     Nsteps: maximal number of steps
     Nflips: is number of flips before choosing another starting point
     sample_after: sample after number of steps
     sample_per_steps sample every sample_per_steps steps"""
     N = h.shape[0]
-    initial_state = np.random.rand(N)
-    thr = 0.9
-    initial_state[initial_state>thr] = 1 
-    initial_state[initial_state<=thr] = -1
+    if initial_state==None:
+        initial_state = np.random.rand(N)
+        thr = 0.5
+        initial_state[initial_state>thr] = 1 
+        initial_state[initial_state<=thr] = -1
     mc_samples = zeros([N, Nsamples])
     energies = []
     Nsteps = int(Nsamples * sample_per_steps)
@@ -612,6 +645,32 @@ def gdd(h, J, initial_state=1, ordered_or_random='ordered', inverse=False):
                 
 #    return current_state
 
+def gdd_rec(h, J, index, initial_state, e_old, index_list, lem_list=[]):
+    N = h.shape[0]
+    current_state = np.array(initial_state, copy=True)
+    current_state[index] = -current_state[index]
+    e_new = calc_energy([h,J], current_state)
+    e_delta = e_new - e_old
+    if e_delta < 0:
+        e_old = e_new
+        index_list = []
+        for indx in [ nx for nx in range(N) if nx != index]:
+            lem_list = lem_list + gdd_rec(h, J, indx, current_state, e_old, index_list, lem_list)
+        return lem_list
+    else:
+        index_list.append(index)
+        
+    if sorted(index_list) == list(range(N)):
+        return [initial_state]
+    else:
+        for indx in [ nx for nx in range(N) if nx != index]:
+            lem_list = lem_list + gdd_rec(h, J, indx, initial_state, e_old, index_list, lem_list)
+        return lem_list
+        
+            
+
+def gdd_(h, J,):
+    0
 
 def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
     """calculate distance and entropy from reference (final) state
@@ -641,6 +700,8 @@ def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
     return np.array(acts)
 
 
+
+
 def lem(h, J, number_of_initial_patterns, init_part_active, ordered_or_random):
     """Determine local energy minima (for an Ising model)
     by Greedy Descent Dynamics (Huang and Toyoizumi, 2016)"""
@@ -654,7 +715,7 @@ def lem(h, J, number_of_initial_patterns, init_part_active, ordered_or_random):
         initial_state[initial_state<=thr] = -1
         patt, _, _ = gdd(h, J, initial_state, ordered_or_random=ordered_or_random)
         patterns.append(patt)
-    return patterns
+    return np.array(patterns)
 
 def lem_init_final(h, J, number_of_initial_patterns):
     """same as lem but stores initial state-final state dictionary"""
@@ -683,9 +744,35 @@ def lem_from_data(h, J, s_act, ordered_or_random):
     return np.array(patterns), init_final_dict
 
 
+def lem_from_data_multi(h, J, s_act, number_per_patt):
+    """Determines LEM with GDD for all states from data"""
+    init_final_dict = {}
+    final_init_dict = {}
+    patterns = []
+    for pattern in s_act.T:
+        for nbp in range(number_per_patt):
+            final_state, _, _ = gdd(h, J, pattern, 'random')
+            patterns.append(final_state)
+            try:
+                init_final_dict[pattern.tobytes()].append(final_state)
+            except KeyError:
+                init_final_dict[pattern.tobytes()] = [final_state]
+            try:
+                final_init_dict[final_state.tobytes()].append(pattern)
+            except KeyError:
+                final_init_dict[final_state.tobytes()] = [pattern]
+    return np.array(patterns), init_final_dict, final_init_dict
+
 ###distance by changing states one-for-one and then using gdd to determine if they
 #belonh to another basin now
 
+def lem_forall(h, J, s_act): #good up to N=10,15
+    N = h.shape[0]
+    allperms = permutations(range(N))
+    for pattern in s_act.T:
+        final_state, _, _ = gdd(h, J, pattern, 'random')
+        
+    
 
 def mc_with_gdd(h, J, init_pattern, lem_patterns, time_steps,
                 T, transition_time_list = [], e_list = [], n_list = [],
@@ -1039,7 +1126,7 @@ def plm_algorithm(sigmas, max_steps, h, J, h_lambda, J_lambda,
     min_av_max = [] 
     for step in range(max_steps):
         #learning step
-        h_primes, J_primes = f_prime_seq(sigmas, h, J, reg_lambda, T)
+        h_primes, J_primes = f_prinme_seq(sigmas, h, J, reg_lambda, T)
         h -= h_lambda*h_primes        
         J -= J_lambda*J_primes
         np.fill_diagonal(J_primes, 0)
@@ -1650,8 +1737,8 @@ def plot_ordered_patterns(patterns_gdd, h, J):
         
     code_probs_gdd_cp = np.array(list(freq_dict_gdd.values()))/np.sum(list(freq_dict_gdd.values()))
     indexed_cp = sorted(range(len(code_probs_gdd)), key=lambda k: code_probs_gdd_cp[k], reverse=True)
-    #oel_cp = [oel[i] for i in indexed_cp]
-#    n_oel_cp = [n_oel[i] for i in indexed_cp]
+#    oel_cp = [oel[i] for i in indexed_cp]
+    n_oel_cp = [n_oel[i] for i in indexed_cp]
     energies_cp = [energies[i] for i in indexed_cp]
     
     fig = plt.figure()
@@ -1660,9 +1747,9 @@ def plot_ordered_patterns(patterns_gdd, h, J):
     ax.set_yscale('log')
     ax.set_xlabel("Codeword")
     ax.set_ylabel("Probability")
-#    ax.set_xticklabels(['']+n_oel_cp, rotation='vertical')
+    ax.set_xticklabels(['']+n_oel_cp, rotation='vertical')
     #ax.set_xticklabels(['']+oel_cp, rotation='vertical')
-#    ax.set_xticks([i for i in np.arange(-1, len(stored_energies), 1.)])
+    ax.set_xticks([i for i in np.arange(-1, len(stored_energies), 1.)])
     plt.show()
     
     energies_cp = [energies[i] for i in indexed_cp]
@@ -1688,36 +1775,49 @@ def plot_ordered_patterns(patterns_gdd, h, J):
             ordered_indices.append(i)
                 
     ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
-#    ordered_energies = [oel[i] for i in ordered_indices]
+    ordered_energies = [oel[i] for i in ordered_indices]
     fig = plt.figure(figsize=(7.5,7.5))
     ax = fig.add_subplot(111)
-    cax = ax.matshow(ordered_patterns, aspect=5)
-#    ax.set_yticklabels(['']+ordered_energies)
-#    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
+    cax = ax.matshow(ordered_patterns, aspect=max(1,int(N/10)))
+    ax.set_yticklabels(['']+ordered_energies)
+    ax.set_yticks([i for i in np.arange(-1, len(stored_energies), 1.)])
     ax.set_xlabel("Neuron")
     ax.set_ylabel("Pattern")
     plt.show()         
     return np.array(ordered_patterns)
 
-
 def order_patterns(patterns_gdd):
     N = patterns_gdd.shape[1]
     "ordered_patterns.shape = (number of patterns, number of neurons)"
     tuple_codewords = map(tuple, patterns_gdd)
-    freq_dict_gdd = Counter(tuple_codewords)    
+    freq_dict_gdd = Counter(tuple_codewords)
     ###order and plot found local energy minima
     ordered_indices = []
     for j in range(N):
-        for i in range(len(freq_dict_gdd.keys())): 
+        for i in range(len(freq_dict_gdd.keys())):
             if list(freq_dict_gdd.keys())[i][j-3] == -1. and list(freq_dict_gdd.keys())[i][j-2] == -1. and list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
                 ordered_indices.append(i)
-    for i in range(len(freq_dict_gdd.keys())): 
+    for i in range(len(freq_dict_gdd.keys())):
         if i not in ordered_indices:
             ordered_indices.append(i)
-               
+
     ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
-    
+
     return np.array(ordered_patterns)
+
+
+def order_patterns_accto_energies(patterns, energies=[], h=0, J=0):
+    N = patterns.shape[1]
+    if energies==[]:
+        energies = calc_pattern_energies(patterns, h, J)
+    
+    ordered_energies = sorted(energies)
+    
+    ordered_indices = [energies.index(i) for i in ordered_energies]
+               
+    ordered_patterns = [patterns[i,:] for i in ordered_indices]
+    
+    return np.array(ordered_patterns), ordered_energies
 
 def calc_pattern_energies(patterns, h, J):
     energies = []
@@ -2397,6 +2497,17 @@ def make_hopfield_weights(pattern_list):
     np.fill_diagonal(weights, 0)
     return weights/float(N)
 
+def make_hopfield_weights_minact(pattern_list):
+    average_activity = (np.average(np.array(pattern_list))+1)/2.
+    average_activity = np.average(np.array(pattern_list))
+    N = pattern_list[0].shape[0]
+    weights = zeros([N, N])
+    for pattern in pattern_list:
+        weights += np.outer(pattern-average_activity, pattern-average_activity)   
+        
+    np.fill_diagonal(weights, 0)
+    return weights/float(N)
+
 
 
 def setup_nodes(N):
@@ -2480,7 +2591,7 @@ def iteration(m_ia, h, J, max_steps, V_node, F_node, delta=10**-2):
 #                print(product01)
                 maI[ll]=product01;
                 l+=1
-                sum_+=arctanh(product01);   
+                sum_+=np.nan_to_num(arctanh(product01));   
             
             for itr in V_node[node_i]:
                 Mia=tanh(h[node_i]+sum_-arctanh(maI[ll]));
@@ -2542,10 +2653,9 @@ def comput_mag_corre(m_ia, h, J, max_steps, V_node, F_node):
             for j in range(Kb-1):
                 product01*=m_jb[j];
             product01*=tanh(J[itr]);
-#                print(product01)
             maI[ll]=product01;
             l+=1
-            sum_+=arctanh(product01);   
+            sum_+=np.nan_to_num(arctanh(product01));   
         
         m_bp[node_i]=tanh(h[node_i]+sum_);
         
@@ -2581,7 +2691,6 @@ def comput_mag_corre(m_ia, h, J, max_steps, V_node, F_node):
             c_bp[i][j]=corre
             c_bp[j][i-1]=corre
             
-    ###TO DO calc corrs
     return  m_bp, c_bp
 
     
@@ -2649,8 +2758,8 @@ def distance_entropy(m_ia, h, J, x, ref_sigma, V_node, F_node, beta=1.):
             prod_ = prod0
             prod0*=tanh(J_p[itr]);
             Jb=J_p[itr];
-            a1=suma-log(cosh(Jb)*(1.0+prod0));
-            a2=sumb-log(cosh(Jb)*(1.0-prod0));
+            a1=suma-np.nan_to_num(log(cosh(Jb)*(1.0+prod0)));
+            a2=sumb-np.nan_to_num(log(cosh(Jb)*(1.0-prod0)));
             sumc+=(Jb*sinh(Jb)*(1.0+prod0)+Jb*cosh(Jb)*(1.0-pow(tanh(Jb),2.0))*prod_)*exp(a1+h_p[node_i])
             sumd+=(Jb*sinh(Jb)*(1.0-prod0)-Jb*cosh(Jb)*(1.0-pow(tanh(Jb),2.0))*prod_)*exp(a2-h_p[node_i])
             
@@ -2730,4 +2839,62 @@ def secant_mp(d, x0, x1, epsilon, h, J, ref_sigma, beta=1., max_steps_k=100,
     s -= xk*q_til
     return xk, s
 
+def calc_entropy_curve(direction, startx, stepx, ref_sigma, h, J_, max_steps, V_node, F_node, delta):
+    N = h.shape[0]
+    if direction=='up':
+        goal = 1.
+    else:
+        goal = -1.
+    m_ia = initial_message(N)
+    xs = []
+    ds = []
+    sd = []
+    fs = []
+    gs = []
+    x=startx
+    while True:
+        h_ = h + x * ref_sigma
+        m_ia = iteration(m_ia, h_, J_, max_steps, V_node, F_node, delta=10**-3)
+        mi, c_bp = comput_mag_corre(m_ia, h_, J_, max_steps, V_node, F_node)
+        q = np.dot(ref_sigma,mi)/float(N)
+        s, fe, eg = distance_entropy(m_ia, h, J_, x, ref_sigma, V_node, F_node)
+        sd.append(s-x*q)
+        q = np.dot(ref_sigma, mi)/N
+        d = (1-q)/2.
+        xs.append(x)
+        ds.append(d)
+        fs.append(fe)
+        gs.append(gs)
+#        print('x', x, 'sd', s-x*q, 'd', d, 'q', q)
+        if direction=='up':
+            x+=stepx
+        else:
+            x-=stepx
+            
+        if q==goal:
+            break
+    
+    return xs, ds, sd, fs, gs
 
+def find_start_x(direction, x, stepx, ref_sigma, h, J_, max_steps, V_node, F_node):
+    N = h.shape[0]
+    if direction=='up':
+        goal = -1.
+    else:
+        goal = 1.
+    while True:
+        m_ia = initial_message(N)
+        h_ = h + x * ref_sigma
+        m_ia = iteration(m_ia, h_, J_, max_steps, V_node, F_node, delta=10**-3)
+        mi, c_bp = comput_mag_corre(m_ia, h_, J_, max_steps, V_node, F_node)
+        q = np.dot(ref_sigma,mi)/float(N)
+        s, fe, eg = distance_entropy(m_ia, h, J_, x, ref_sigma, V_node, F_node)
+        q = np.dot(ref_sigma, mi)/N
+#        print('x', x, 'sd', s-x*q, 'd', d, 'q', q)
+        if q==goal:
+            return x
+        else:
+            if direction=='up':
+                x-=stepx
+            elif direction=='down':
+                x+=stepx
