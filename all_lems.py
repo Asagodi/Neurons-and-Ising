@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import pickle
 
 
-N=12 #max 10?
+N=10 #max 10?
 
 all_states = np.array([list(seq) for seq in itertools.product([-1,1],repeat=N)])
 
@@ -80,18 +80,6 @@ for j, patt in enumerate(all_states):
     if min(en_list) >= all_energies[j]:
         all_lems[j] = 1
         
-#Rounding fricking errors
-all_lems = zeros(all_states_num)
-for j, patt in enumerate(all_states):
-    
-    en_list = []
-    for i in range(N):
-        neigh = np.array(patt, copy=True)
-        neigh[i] = -neigh[i]
-        en_list.append(calc_energy([h,J],neigh))
-    if np.round(min(en_list),13) >= np.round(all_energies[j], 13):
-        all_lems[j] = 1
-#    print(j, min(en_list), all_energies[j])
 
 #for each state the LEMs one can reach by GDD
 list_of_lems = [] 
