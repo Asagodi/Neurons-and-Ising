@@ -16,6 +16,9 @@ import matplotlib.animation as animation
 from collections import Counter
 import itertools
 import numpy as np
+import networkx as nx
+import operator as op
+from functools import reduce
 #from progress.bar import Bar
 
 
@@ -952,22 +955,22 @@ def cross_val_all(s_act, reg_lambda_list, max_steps,
                                 reg_method, reg_lambda, epsilon, 1.)
         h_list.append(h)
         J_list.append(J)
-        s_act_inferred = metropolis_mc(h, J, Nsamples,
+        s_act_inferred, _ = metropolis_mc(h, J, Nsamples,
                       sample_after, sample_per_steps, 1.)
         mag_inf = np.average(s_act_inferred, axis=1)
         corrs_inf = calc_correlations(s_act_inferred, mag_inf)
         corrs3_inf = calc_third_order_corr(s_act_inferred, mag_inf)
         
-        fig = plt.figure(figsize=(7.5, 7.5))
-        ax = fig.add_subplot(111)
-        cax = ax.plot([-1, 1], [-1, 1], c="r")
-        cax = ax.plot(corrs_sim.flatten(), corrs_inf.flatten(), 'x', c='tab:orange', label="Correlations")
-        cax = ax.plot(corrs3_sim.flatten(), corrs3_inf.flatten(), 'x', c='g', label="Third order correlations")
-        cax = ax.plot(mag_sim, mag_inf, 'o', c='b', label="Average magnetization")
-        ax.set_xlabel("Data")
-        ax.set_ylabel("Inferred")
-        ax.legend()
-        plt.show()
+#        fig = plt.figure(figsize=(7.5, 7.5))
+#        ax = fig.add_subplot(111)
+#        cax = ax.plot([-1, 1], [-1, 1], c="r")
+#        cax = ax.plot(corrs_sim.flatten(), corrs_inf.flatten(), 'x', c='tab:orange', label="Correlations")
+#        cax = ax.plot(corrs3_sim.flatten(), corrs3_inf.flatten(), 'x', c='g', label="Third order correlations")
+#        cax = ax.plot(mag_sim, mag_inf, 'o', c='b', label="Average magnetization")
+#        ax.set_xlabel("Data")
+#        ax.set_ylabel("Inferred")
+#        ax.legend()
+#        plt.show()
         
         error = np.sqrt(np.average(np.square(mag_sim - mag_inf)) + np.average(np.square(corrs_sim - corrs_inf)) + np.average(np.square(corrs3_sim - corrs3_inf)))
         errors[k] = error
@@ -1652,6 +1655,20 @@ def make_expected_patterns(N, n_bumps, length_bump):
             for b_i in range(n_bumps):
                 exp_patterns[i, (n +  b_i*(length_bump + shift) + i)% N] = 1
     return exp_patterns
+
+def make_expected_patterns_with_intermediary(N):
+    # exp_patterns.shape(npatterns, N)
+    num_patts = int(2*N)
+    length_bump = int(N/2)
+    exp_patterns = -ones([num_patts, N]) 
+    for i in range(N): 
+        for n in range(length_bump):
+            exp_patterns[2*i, (n + i)% N] = 1
+        for n in range(length_bump-1):
+            exp_patterns[2*i+1, (n+ i)% N] = 1       
+#        for n in range(1,length_bump):
+#            exp_patterns[3*i+2, (n + i)% N] = 1
+    return exp_patterns
     
 
 def plot_patterns_with_energies(h, J, patterns):
@@ -1795,7 +1812,26 @@ def order_patterns(patterns_gdd):
     ordered_indices = []
     for j in range(N):
         for i in range(len(freq_dict_gdd.keys())):
-            if list(freq_dict_gdd.keys())[i][j-3] == -1. and list(freq_dict_gdd.keys())[i][j-2] == -1. and list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
+            if list(freq_dict_gdd.keys())[i][j-4] == -1. and list(freq_dict_gdd.keys())[i][j-3] == -1. and list(freq_dict_gdd.keys())[i][j-2] == -1. and list(freq_dict_gdd.keys())[i][j-1] == -1. and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
+                ordered_indices.append(i)
+    for i in range(len(freq_dict_gdd.keys())):
+        if i not in ordered_indices:
+            ordered_indices.append(i)
+
+    ordered_patterns = [list(freq_dict_gdd.keys())[i] for i in ordered_indices]
+
+    return np.array(ordered_patterns)
+
+def order_patterns_upto(patterns_gdd, upto):
+    N = patterns_gdd.shape[1]
+    "ordered_patterns.shape = (number of patterns, number of neurons)"
+    tuple_codewords = map(tuple, patterns_gdd)
+    freq_dict_gdd = Counter(tuple_codewords)
+    ###order and plot found local energy minima
+    ordered_indices = []
+    for j in range(N):
+        for i in range(len(freq_dict_gdd.keys())):
+            if np.all([list(freq_dict_gdd.keys())[i][j-k]==-1. for k in range(1,upto)]) and list(freq_dict_gdd.keys())[i][j] == 1. and i not in ordered_indices:
                 ordered_indices.append(i)
     for i in range(len(freq_dict_gdd.keys())):
         if i not in ordered_indices:
@@ -2076,6 +2112,7 @@ def message_passing2(h, J, max_steps):
 
 def message_passing(h, J, max_steps):
     N = h.shape[0]
+#    np.random.seed(1)
     mia = np.random.random((N, N))
     mia = np.triu(mia,k=1)
     
@@ -2530,6 +2567,7 @@ def setup_nodes(N):
     
 
 def initial_message(N):
+    np.random.seed(1)
     m_ia = np.random.uniform(-1.,1.,[N,N-1])
     return m_ia
 
@@ -2854,7 +2892,7 @@ def calc_entropy_curve(direction, startx, stepx, ref_sigma, h, J_, max_steps, V_
     x=startx
     while True:
         h_ = h + x * ref_sigma
-        m_ia = iteration(m_ia, h_, J_, max_steps, V_node, F_node, delta=10**-3)
+        m_ia = iteration(m_ia, h_, J_, max_steps, V_node, F_node, delta=delta)
         mi, c_bp = comput_mag_corre(m_ia, h_, J_, max_steps, V_node, F_node)
         q = np.dot(ref_sigma,mi)/float(N)
         s, fe, eg = distance_entropy(m_ia, h, J_, x, ref_sigma, V_node, F_node)
@@ -2898,3 +2936,164 @@ def find_start_x(direction, x, stepx, ref_sigma, h, J_, max_steps, V_node, F_nod
                 x-=stepx
             elif direction=='down':
                 x+=stepx
+                
+                
+def get_neighbourhood(pattern, maxdistance):
+    N = pattern.shape[0]
+    nei_list = []
+    for dist in range(maxdistance+1):
+        for ij in itertools.combinations(range(N), dist):
+            nei_patt = np.array(pattern, copy=True)
+            for i in ij:
+                nei_patt[i] = - nei_patt[i]
+                
+            nei_list.append(nei_patt)
+    
+    return np.array(nei_list)
+
+def get_lem_neighbourhood(lems, maxdistance):
+    total_neighbourhood = []
+    for pattern in lems:
+        total_neighbourhood.append(pattern)
+        lnei = get_neighbourhood(pattern, maxdistance)
+        for apattern in lnei:
+#            if not ispatterninlist(apattern, total_neighbourhood):
+    
+            total_neighbourhood.append(apattern)
+            
+    tuple_codewords = map(tuple, np.array(total_neighbourhood))
+    freq_dict = Counter(tuple_codewords)
+    return np.array(list(freq_dict.keys()))
+
+def ispatterninlist(pattern, patternlist):
+    value = False
+    for patt in patternlist:
+        if np.all(patt == pattern):
+            value = True
+            
+    return value
+        
+
+def determine_basins(h, J, all_states):
+    all_energies = np.array(calc_energy_list([h,J], all_states))
+    N = h.shape[0]
+    all_states_num = all_states.shape[0] # == 2**N
+    
+    ham_matrix = zeros((all_states_num, all_states_num))
+    
+    for i,patt1 in enumerate(all_states):
+        for j,patt2 in enumerate(all_states[i:]):
+            if hamming_distance(patt1, patt2) <= 1.:
+                ham_matrix[i,i+j] = 1.
+                ham_matrix[i+j,i] = 1.
+                
+                
+    
+    can_matrix = zeros((all_states_num, all_states_num))
+    for i,en1 in enumerate(all_energies):
+        for j,en2 in enumerate(all_energies[i+1:]):
+            if ham_matrix[i,i+j+1] == 1. :
+                if np.round(en2,13)<np.round(en1,13):
+                    can_matrix[i,i+j+1] = 1
+    #            elif en2==en1:
+    #                can_matrix[i,i+j+1] = 1
+    #                can_matrix[i+j+1,i] = 1
+                elif en2==en1:
+                    None
+                else:
+                    can_matrix[i+j+1,i] = 1
+    
+    DG=nx.DiGraph(can_matrix)
+    
+    #make this faster
+    lem_matrix = zeros((all_states_num,all_states_num))
+    for i in range(all_states_num):
+        for j in range(all_states_num):
+            try: 
+                nx.shortest_path(DG, i, j)
+                if i!=j:
+                    lem_matrix[i,j] = 1
+            except:
+                None
+                
+                
+    all_lems = zeros(all_states_num, dtype=bool)
+    for j, patt in enumerate(all_states):
+        
+        en_list = []
+        for i in range(N):
+            neigh = np.array(patt, copy=True)
+            neigh[i] = -neigh[i]
+            en_list.append(calc_energy([h,J],neigh))
+        if min(en_list) >= all_energies[j]:
+            all_lems[j] = 1
+            
+
+    list_of_lems = [] 
+    for i in range(all_states_num):
+        if np.where(lem_matrix[i,:]==1.)[0].size == 0:
+            
+            list_of_lems.append(np.reshape(all_states[i,:], (1,N)))
+        else:
+            
+            lems_indx_from_here = [a for a in list(np.where(lem_matrix[i,:]==1.)[0]) if a in list(np.where(all_lems==1.)[0])]
+            if len(lems_indx_from_here) == 1:
+                list_of_lems.append(np.reshape(all_states[lems_indx_from_here,:], (1,N)))
+            else:
+                list_of_lems.append(all_states[lems_indx_from_here,:])
+                
+                
+                
+    #order#?
+    ordered_patterns = order_patterns(all_states[all_lems,:])
+    
+    #get basins
+    list_of_basins = []  #one for each LEM
+    for lem in ordered_patterns:
+        basin = []
+        for i, patterns in enumerate(list_of_lems):
+            for patt in patterns:
+                if np.all(lem==patt):
+                    
+                    basin.append(all_states[i])
+        
+        list_of_basins.append(np.array(basin))
+    return all_states[all_lems], list_of_basins, list_of_lems
+
+def maxima_along_paths(enss):
+    all_local_maxs = []
+    for energies_on_path in enss:
+        all_local_maxs.append(local_maxima_on_path(energies_on_path))       
+    return all_local_maxs
+
+def local_extrema_on_path(energies_on_path):
+    local_extr = []
+    mine = energies_on_path[0]
+    print(mine)
+    sign = 1
+    for i,energy in enumerate(energies_on_path[1:-1]):
+        if sign*energies_on_path[i] < sign*energy and sign*energy > sign*energies_on_path[i+2]:
+            if sign==1:
+                local_extr.append(energy - mine)
+            elif sign==-1:
+                mine = energy
+            sign *= -1
+            print(mine, sign)
+    return local_extr
+
+def find_trangles():
+    for i in range(N):
+        for j in range(N):
+            for k in range(N):
+                
+                if D[i, j] <= thresh and D[j, k] <= thresh and D[k, i] <= thresh:
+                    t1 = plt.Polygon([X[i, 0], X[j, 0], X[k, 0]], color=Y[0])
+                    plt.gca().add_patch(t1)
+                    
+
+
+def ncr(n, r):
+    r = min(r, n-r)
+    numer = reduce(op.mul, range(n, n-r, -1), 1)
+    denom = reduce(op.mul, range(1, r+1), 1)
+    return numer / denom
