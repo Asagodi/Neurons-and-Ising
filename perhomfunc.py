@@ -16,25 +16,28 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 import itertools
 from lec import *
-from scipy.cluster.hierarchy import single, fcluster
+from scipy.cluster.hierarchy import single, fcluster, ward
 from scipy.spatial.distance import pdist
 import networkx as nx
 
 
 path_to_buzs = '/home/abel/Documents/Projects/BioMath/LEC/Saves/Entropy/buzsaki/'
 
-with open(path_to_buzs+"data_resam.txt", "rb") as fp:
-    data = pickle.load(fp)
+#with open(path_to_buzs+"data_resam.txt", "rb") as fp:
+#    data = pickle.load(fp)
 
-h = data['h']
-J = data['J']
-N = h.shape[0]
-all_states = np.array([list(seq) for seq in itertools.product([-1,1],repeat=N)])
+#h = data['h']
+#J = data['J']
+
 
 
 exp_patts = make_expected_patterns(N, 1, 6)
 h = zeros(N)
 J = make_hopfield_weights(exp_patts)
+
+N = h.shape[0]
+
+all_states = np.array([list(seq) for seq in itertools.product([-1,1],repeat=N)])
 
 all_states_num = all_states.shape[0]
 
@@ -46,28 +49,39 @@ all_energies = np.array(calc_energy_list([h,J], all_states))
 
 
 
+
 #step 3
-nsteps = 2
-step = .75
+#make list of energies
+freq_dict = Counter(all_energies)
+sel = sorted(list(freq_dict.keys()))
+nsteps = 5
 ulist = []
-aroundval = min(all_energies) + step
-mx = step
 for i in range(nsteps):
-    patterns_gdd = all_states[np.where( abs(np.array(all_energies) - aroundval) < mx)[0],:]
+    patterns_gdd = all_states[(all_energies >= sel[i]) & (all_energies <= sel[i+1])]
     ulist.append(patterns_gdd)
-    aroundval += step
-    
+
+
+#nsteps = 3
+#step = 1
+#ulist = []
+#aroundval = min(all_energies) + step
+#mx = step
+#for i in range(nsteps):
+#    patterns_gdd = all_states[np.where( abs(np.array(all_energies) - aroundval) < mx)[0],:]
+#    ulist.append(patterns_gdd)
+#    aroundval += step
+#    
 
 
 
 #step 4, clustering
-E = 1/12
+E = 2/N
 
 
 clustlist = []
 for i in range(nsteps): 
     y = pdist(ulist[i], 'hamming')
-    Z = single(y)
+    Z = ward(y)
     clinkmat = fcluster(Z, E, criterion='distance')
 #    clinkmat = scipy.cluster.hierarchy.linkage(pdist, method='single',
 #                                               metric='hamming')
@@ -96,4 +110,7 @@ for i, ui in enumerate(ulist):
                     if np.all(patt==patt_un) and i!=m:
                         l = clustlist[m][n] - 1
                         G.add_edge(str(i)+"."+str(j), str(m)+"."+str(l))
-    
+
+plt.figure(figsize=(4,4))   
+nx.draw_spectral(G, with_labels = True)
+plt.show()
