@@ -1843,6 +1843,7 @@ def order_patterns_upto(patterns_gdd, upto):
 
 
 def order_patterns_accto_energies(patterns, energies=[], h=0, J=0):
+    #energies has to be a list
     N = patterns.shape[1]
     if energies==[]:
         energies = calc_pattern_energies(patterns, h, J)
@@ -1854,6 +1855,16 @@ def order_patterns_accto_energies(patterns, energies=[], h=0, J=0):
     ordered_patterns = [patterns[i,:] for i in ordered_indices]
     
     return np.array(ordered_patterns), ordered_energies
+
+def order_accto_energies(basins, energies, h=0, J=0):
+
+    ordered_energies = sorted(energies)
+    
+    ordered_indices = [energies.index(i) for i in ordered_energies]
+               
+    ordered_basins = [basins[i] for i in ordered_indices]
+    
+    return ordered_basins, ordered_energies
 
 def calc_pattern_energies(patterns, h, J):
     energies = []
@@ -1881,6 +1892,23 @@ def make_np_shortest_paths(pattern1, pattern2, Np):
         all_paths = [pattern1]
         print("Patterns are identical")
     return np.array(all_paths)
+
+def make_shortest_paths_between_patterns(patt1, patt2):
+    indiff = get_indices_where_different(patt1, patt2)
+    pathinds = list(itertools.permutations(indiff))
+    path_list = []
+    for pi in pathinds:
+        newpath = []
+        patalong = np.array(patt1, copy=True)
+        #plot_single_pattern(patalong)
+        newpath.append(np.array(patt1, copy=True))
+        for ind in pi:
+            
+            patalong[ind] = - patalong[ind]
+            #plot_single_pattern(patalong)
+            newpath.append(np.array(patalong, copy=True))
+        path_list.append(newpath)
+    return path_list
 
 def make_patterns_from_indices(indxs, begin, end):
     pattern_path = [begin]
@@ -3097,3 +3125,9 @@ def ncr(n, r):
     numer = reduce(op.mul, range(n, n-r, -1), 1)
     denom = reduce(op.mul, range(1, r+1), 1)
     return numer / denom
+
+def prob_of_patt(N, p, n_a):
+    if N < 171:
+        return (1-p)**(N-n_a)*p**n_a*math.factorial(N)/(math.factorial(N-n_a)*math.factorial(n_a))
+    else:
+        return Decimal((1-p)**(N-n_a)*p**n_a)*Decimal(math.factorial(N))/(Decimal(math.factorial(N-n_a))*math.factorial(n_a))
