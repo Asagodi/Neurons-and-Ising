@@ -1880,17 +1880,20 @@ def get_indices_where_different(pattern1, pattern2):
 
 
 def make_np_shortest_paths(pattern1, pattern2, Np):
-    Np = min(Np, 2**get_indices_where_different(pattern1, pattern2).shape[0])
+#    Np = min(Np, math.factorial(get_indices_where_different(pattern1, pattern2).shape[0]))
     indxs = get_indices_where_different(pattern1, pattern2)
     all_paths = []
-    try:
-        for ip in range(Np):
-            np.random.shuffle(indxs)
-            pattern_path = make_patterns_from_indices(indxs, pattern1, pattern2)
-            all_paths.append(pattern_path)
-    except:
-        all_paths = [pattern1]
-        print("Patterns are identical")
+    if Np<math.factorial(indxs.shape[0]):
+        try:
+            for ip in range(Np):
+                np.random.shuffle(indxs)
+                pattern_path = make_patterns_from_indices(indxs, pattern1, pattern2)
+                all_paths.append(pattern_path)
+        except:
+            all_paths = []
+            print("Patterns are identical")
+    else:
+        all_paths = get_connecting_patterns(pattern1, pattern2)
     return np.array(all_paths)
 
 def make_shortest_paths_between_patterns(patt1, patt2):
@@ -1910,10 +1913,27 @@ def make_shortest_paths_between_patterns(patt1, patt2):
         path_list.append(newpath)
     return path_list
 
+def get_connecting_patterns(patt1, patt2):
+    indiff = get_indices_where_different(patt1, patt2)
+    pathinds = list(itertools.permutations(indiff))
+    path_list = []
+    for pi in pathinds:
+        newpath = []
+        patalong = np.array(patt1, copy=True)
+        #plot_single_pattern(patalong)
+        for ind in pi[:-1]:
+            
+            patalong[ind] = - patalong[ind]
+            #plot_single_pattern(patalong)
+            newpath.append(np.array(patalong, copy=True))
+        path_list.append(newpath)
+    return path_list
+
 def make_patterns_from_indices(indxs, begin, end):
-    pattern_path = [begin]
+#    pattern_path = [begin]
+    pattern_path = []
     prev_pattern = np.copy(begin)
-    for ind in indxs:
+    for ind in indxs[:-1]:
         next_pattern = np.copy(prev_pattern)
         next_pattern[ind] = -next_pattern[ind]
         prev_pattern = np.copy(next_pattern)
@@ -1921,7 +1941,33 @@ def make_patterns_from_indices(indxs, begin, end):
 #    print(np.all(next_pattern == end))
     return np.array(pattern_path)
 
+def get_path_probabilities(paths, patt1, patt2, h, J):
+    path_ens = calculate_energies_for_paths(paths, h, J)
+    path_probs_1_to_2 = []
+    patt1energy = calc_energy([h,J], patt1)
+    patt2energy = calc_energy([h,J], patt2)
+    for pens in path_ens:
+        prod = exp(-pens[0] + patt1energy)
+        for i in range(len(pens[:-1])):
+            if pens[i]-pens[i+1]<0.:
+                prod *= exp(-pens[i+1]+pens[i])
+#        prod *= exp(-patt2energy+pens[-1])
+        path_probs_1_to_2.append(prod)
+        
+    path_probs_2_to_1 = []
+    for pens in path_ens:
+        prod = exp(-pens[0] + patt2energy)
+        for i in reversed(range(len(pens[:-1]))):
+            if pens[i]-pens[i+1]<0.:
+                prod *= exp(-pens[i+1]+pens[i])
+#        prod *= exp(-patt1energy+pens[-1])
+        
+        path_probs_2_to_1.append(prod)
+    return path_probs_1_to_2, path_probs_2_to_1
+
 def calculate_energies_for_paths(paths, h, J):
+    if paths.shape==(1,0):
+        return [[0.]]
     energies_per_path = []
     for path_between in paths:
         energies_on_this_path = []
@@ -3015,8 +3061,6 @@ def determine_basins(h, J, all_states):
                 ham_matrix[i,i+j] = 1.
                 ham_matrix[i+j,i] = 1.
                 
-                
-    
     can_matrix = zeros((all_states_num, all_states_num))
     for i,en1 in enumerate(all_energies):
         for j,en2 in enumerate(all_energies[i+1:]):
