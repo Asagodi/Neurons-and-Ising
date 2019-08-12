@@ -1760,7 +1760,7 @@ def plot_ordered_patterns(patterns_gdd, h, J):
     
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    cax = ax.plot(code_probs_gdd, 'o', label="GGD")
+    cax = ax.plot(code_probs_gdd, 'o', label="GDD")
     ax.set_yscale('log')
     ax.set_xlabel("Codeword")
     ax.set_ylabel("Probability")
@@ -1916,7 +1916,8 @@ def make_shortest_paths_between_patterns(patt1, patt2):
 def get_connecting_patterns(patt1, patt2):
     indiff = get_indices_where_different(patt1, patt2)
     pathinds = list(itertools.permutations(indiff))
-    path_list = []
+    
+    list = []
     for pi in pathinds:
         newpath = []
         patalong = np.array(patt1, copy=True)
@@ -3114,8 +3115,6 @@ def determine_basins(h, J, all_states):
             else:
                 list_of_lems.append(all_states[lems_indx_from_here,:])
                 
-                
-                
     #order#?
     ordered_patterns = order_patterns(all_states[all_lems,:])
     
@@ -3131,6 +3130,14 @@ def determine_basins(h, J, all_states):
         
         list_of_basins.append(np.array(basin))
     return all_states[all_lems], list_of_basins, list_of_lems
+
+def local_maxima_on_path(energies_on_path):
+    local_maxs = []
+    mine = min(energies_on_path[0], energies_on_path[-1])
+    for i,energy in enumerate(energies_on_path[1:-1]):
+        if energies_on_path[i] < energy and energy > energies_on_path[i+2]:
+            local_maxs.append(energy - mine)
+    return local_maxs
 
 def maxima_along_paths(enss):
     all_local_maxs = []
@@ -3153,7 +3160,7 @@ def local_extrema_on_path(energies_on_path):
             print(mine, sign)
     return local_extr
 
-def find_trangles():
+def find_triangles():
     for i in range(N):
         for j in range(N):
             for k in range(N):
