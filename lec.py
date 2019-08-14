@@ -672,8 +672,7 @@ def gdd_rec(h, J, index, initial_state, e_old, index_list, lem_list=[]):
         
             
 
-def gdd_(h, J,):
-    0
+
 
 def gdd_dyn(coeffs, initial_state, reference_state, max_steps):
     """calculate distance and entropy from reference (final) state
@@ -745,6 +744,20 @@ def lem_from_data(h, J, s_act, ordered_or_random):
         except KeyError:
             init_final_dict[final_state.tobytes()] = [pattern]
     return np.array(patterns), init_final_dict
+
+def lem_from_data_with_times(h, J, s_act, ordered_or_random):
+    """Determines LEM with GDD for all states from data"""
+    init_final_dict_times = {}
+    patterns = []
+    for t, pattern in enumerate(s_act.T):
+        final_state, _, _ = gdd(h, J, pattern, ordered_or_random)
+        patterns.append(final_state)
+        try:
+            init_final_dict_times[final_state.tobytes()][0].append(pattern)
+            init_final_dict_times[final_state.tobytes()][1].append(t)
+        except KeyError:
+            init_final_dict_times[final_state.tobytes()] = ([pattern], [t])
+    return np.array(patterns), init_final_dict_times
 
 
 def lem_from_data_multi(h, J, s_act, number_per_patt):
@@ -2610,7 +2623,7 @@ def make_hopfield_weights(pattern_list):
     return weights/float(N)
 
 def make_hopfield_weights_minact(pattern_list):
-    average_activity = (np.average(np.array(pattern_list))+1)/2.
+#    average_activity = (np.average(np.array(pattern_list))+1)/2.
     average_activity = np.average(np.array(pattern_list))
     N = pattern_list[0].shape[0]
     weights = zeros([N, N])
