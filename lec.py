@@ -491,14 +491,14 @@ def mc_step_3(N, h, J, current_state, T):
     return np.array(current_state), e_delta, flip
 
 def metropolis_mc(h, J, Nsamples, sample_after, sample_per_steps, T,
-                  initial_state=None):
+                  initial_state=[None]):
     """Metropolis Monte Carlo simulation with spin flip
     Nsteps: maximal number of steps
     Nflips: is number of flips before choosing another starting point
     sample_after: sample after number of steps
     sample_per_steps sample every sample_per_steps steps"""
     N = h.shape[0]
-    if initial_state==None:
+    if initial_state[0]==None:
         initial_state = np.random.rand(N)
         thr = 0.5
         initial_state[initial_state>thr] = 1 
@@ -1930,7 +1930,7 @@ def get_connecting_patterns(patt1, patt2):
     indiff = get_indices_where_different(patt1, patt2)
     pathinds = list(itertools.permutations(indiff))
     
-    list = []
+    path_list = []
     for pi in pathinds:
         newpath = []
         patalong = np.array(patt1, copy=True)
@@ -3046,8 +3046,36 @@ def get_lem_neighbourhood(lems, maxdistance):
         lnei = get_neighbourhood(pattern, maxdistance)
         for apattern in lnei:
 #            if not ispatterninlist(apattern, total_neighbourhood):
-    
             total_neighbourhood.append(apattern)
+            
+    tuple_codewords = map(tuple, np.array(total_neighbourhood))
+    freq_dict = Counter(tuple_codewords)
+    return np.array(list(freq_dict.keys()))
+
+def get_lem_nbhd_subsample(lems, maxdistance, maxnum=100):
+    total_neighbourhood = []
+    for pattern in lems:
+        total_neighbourhood.append(pattern)
+        for sample in range(maxnum):
+            rint = np.random.choice(lems.shape[1], np.random.randint(maxdistance), replace=False)
+            apattern = pattern.copy()
+            apattern[rint] = -apattern[rint]
+            total_neighbourhood.append(apattern)
+            
+    tuple_codewords = map(tuple, np.array(total_neighbourhood))
+    freq_dict = Counter(tuple_codewords)
+    return np.array(list(freq_dict.keys()))
+
+def get_lem_nbhd_subsample_uniform(lems, maxdistance, maxnum=100):
+    total_neighbourhood = []
+    for pattern in lems:
+        total_neighbourhood.append(pattern)
+        for dis in range(maxdistance):
+            for sample in range(int(maxnum/maxdistance)):
+                rint = np.random.choice(lems.shape[1], dis, replace=False)
+                apattern = pattern.copy()
+                apattern[rint] = -apattern[rint]
+                total_neighbourhood.append(apattern)
             
     tuple_codewords = map(tuple, np.array(total_neighbourhood))
     freq_dict = Counter(tuple_codewords)
